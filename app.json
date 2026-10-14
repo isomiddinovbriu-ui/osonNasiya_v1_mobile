@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "osonNasiya_v1",
+    "name": "OsonNasiya",
     "slug": "osonNasiya_v1",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "osonnasiyav1",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon"
     },
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.isomiddinov_irb.osonNasiya_v1"
     },
     "web": {
       "output": "static",
@@ -25,6 +26,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-secure-store",
       [
         "expo-splash-screen",
         {
@@ -37,6 +39,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d4165140-2dc0-4fc5-a2bc-e013e7ca64b4"
+      }
     }
   }
 }
