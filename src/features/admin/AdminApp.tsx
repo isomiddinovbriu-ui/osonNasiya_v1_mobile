@@ -1,8 +1,12 @@
-import * as SecureStore from "expo-secure-store";
+import { Image } from "expo-image";
+import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
+import { ApiError, apiRequest, type AuthResult, type User } from "./api";
+import StaffManagement from "./StaffManagement";
+import LoadingMark from "./LoadingMark";
+import { deleteStoredToken, getStoredToken, setStoredToken } from "./session";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,68 +17,6 @@ import {
   View,
 } from "react-native";
 
-type User = { id: string; login: string; role: "super_admin" };
-type AuthResult = { token: string; user: User };
-
-class ApiError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-  ) {
-    super(message);
-  }
-}
-
-const TOKEN_KEY = "osonnasiya_admin_token";
-const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
-
-// SecureStore is native-only. Keep web sessions in memory for previewing the UI.
-async function getStoredToken() {
-  return Platform.OS === "web" ? null : SecureStore.getItemAsync(TOKEN_KEY);
-}
-
-async function setStoredToken(token: string) {
-  if (Platform.OS !== "web") await SecureStore.setItemAsync(TOKEN_KEY, token);
-}
-
-async function deleteStoredToken() {
-  if (Platform.OS !== "web") await SecureStore.deleteItemAsync(TOKEN_KEY);
-}
-
-async function apiRequest<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
-  if (!API_URL)
-    throw new Error("API manzili sozlanmagan. .env faylini tekshiring.");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
-  try {
-    const response = await fetch(`${API_URL}${path}`, {
-      ...options,
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...options.headers },
-    });
-    const data = await response.json();
-    if (!response.ok)
-      throw new ApiError(
-        data.message || "So‘rov bajarilmadi.",
-        response.status,
-      );
-    return data as T;
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError")
-      throw new Error("Server javob bermadi. Qayta urinib ko‘ring.");
-    if (error instanceof TypeError)
-      throw new Error(
-        "Serverga ulanib bo‘lmadi. Wi-Fi va API manzilini tekshiring.",
-      );
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export default function App() {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -83,6 +25,7 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -93,7 +36,10 @@ export default function App() {
           const result = await apiRequest<{ user: User }>("/auth/me", {
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (active) setUser(result.user);
+          if (active) {
+            setToken(token);
+            setUser(result.user);
+          }
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -131,6 +77,7 @@ export default function App() {
       });
       await setStoredToken(result.token);
       setPassword("");
+      setToken(result.token);
       setUser(result.user);
     } catch (err) {
       setError(
@@ -143,35 +90,78 @@ export default function App() {
 
   async function signOut() {
     await deleteStoredToken();
+    setToken(null);
     setUser(null);
     setPassword("");
+  }
+
+  async function handleSessionExpired() {
+    await signOut();
+    setError("Sessiya tugadi. Qayta kiring.");
   }
 
   if (checking)
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1677D2" />
+        <LoadingMark size={104} />
+        <Text style={styles.loadingText}>Sessiya tekshirilmoqda...</Text>
         <StatusBar style="dark" />
       </View>
     );
 
   if (user) {
     return (
-      <View style={styles.home}>
+      <ScrollView
+        style={styles.home}
+        contentContainerStyle={styles.homeContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <StatusBar style="dark" />
         <Text style={styles.brand}>OsonNasiya</Text>
         <View style={styles.welcomeCard}>
-          <Text style={styles.eyebrow}>SUPER ADMIN</Text>
+          <Text style={styles.eyebrow}>{user.role.toUpperCase()}</Text>
           <Text style={styles.welcomeTitle}>Xush kelibsiz, {user.login}</Text>
           <Text style={styles.welcomeText}>
-            Kirish muvaffaqiyatli. Boshqaruv bo‘limlari keyingi bosqichda
-            qo‘shiladi.
+            {user.role === "super_admin"
+              ? "Xodimlarni yaratish va ro‘yxatini boshqarish"
+              : user.role === "product_creator"
+                ? "Guruhlar, bo‘limlar va mahsulotlarni boshqarish"
+              : "Hisobingizga muvaffaqiyatli kirdingiz."}
           </Text>
         </View>
+        {user.role === "super_admin" && token && (
+          <StaffManagement token={token} onSessionExpired={handleSessionExpired} />
+        )}
+        {user.role === "product_creator" && <View style={styles.catalogLinks}>
+          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/groups")} accessibilityRole="button">
+            <Text style={styles.catalogLinkIcon}>▦</Text>
+            <View style={styles.catalogLinkBody}>
+              <Text style={styles.catalogLinkTitle}>Guruhlar uchun amallar</Text>
+              <Text style={styles.catalogLinkDescription}>Guruhlarni yarating va boshqaring</Text>
+            </View>
+            <Text style={styles.catalogLinkArrow}>›</Text>
+          </Pressable>
+          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/sections")} accessibilityRole="button">
+            <Text style={styles.catalogLinkIcon}>☷</Text>
+            <View style={styles.catalogLinkBody}>
+              <Text style={styles.catalogLinkTitle}>Bo‘limlar uchun amallar</Text>
+              <Text style={styles.catalogLinkDescription}>Guruh bo‘yicha bo‘limlarni boshqaring</Text>
+            </View>
+            <Text style={styles.catalogLinkArrow}>›</Text>
+          </Pressable>
+          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/products")} accessibilityRole="button">
+            <Text style={styles.catalogLinkIcon}>▣</Text>
+            <View style={styles.catalogLinkBody}>
+              <Text style={styles.catalogLinkTitle}>Mahsulotlar uchun amallar</Text>
+              <Text style={styles.catalogLinkDescription}>Mahsulot qo‘shing, rasmlarini boshqaring</Text>
+            </View>
+            <Text style={styles.catalogLinkArrow}>›</Text>
+          </Pressable>
+        </View>}
         <Pressable style={styles.outlineButton} onPress={signOut}>
           <Text style={styles.outlineButtonText}>Chiqish</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -185,14 +175,23 @@ export default function App() {
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.logoMark}>
-          <Text style={styles.logoLetter}>O</Text>
+        <View style={styles.loginHero}>
+          <View style={styles.logoMark}>
+            <Image
+              source={require("../../../assets/images/brand-mark.png")}
+              style={styles.loginLogo}
+              contentFit="contain"
+              accessibilityLabel="OsonNasiya logosi"
+            />
+          </View>
+          <Text style={styles.loginBrand}>OsonNasiya</Text>
         </View>
-        <Text style={styles.brand}>OsonNasiya</Text>
-        <Text style={styles.heading}>Tizimga kirish</Text>
-        <Text style={styles.subtitle}>
-          Boshqaruv paneliga kirish uchun hisobingizni kiriting.
-        </Text>
+        <View style={styles.loginIntro}>
+          <Text style={styles.heading}>Tizimga kirish</Text>
+          <Text style={styles.subtitle}>
+            Hisobingizga kirib, ishni davom ettiring.
+          </Text>
+        </View>
         <View style={styles.form}>
           <Text style={styles.label}>Login</Text>
           <TextInput
@@ -202,7 +201,7 @@ export default function App() {
               setLogin(value);
               setError("");
             }}
-            placeholder="Admin loginini kiriting"
+            placeholder="Loginni kiriting"
             placeholderTextColor="#9AA6B5"
             autoCapitalize="none"
             autoCorrect={false}
@@ -250,7 +249,10 @@ export default function App() {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <View style={styles.buttonLoading}>
+                <LoadingMark size={32} />
+                <Text style={styles.buttonText}>Kirilmoqda...</Text>
+              </View>
             ) : (
               <Text style={styles.buttonText}>Kirish</Text>
             )}
@@ -272,22 +274,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#F6F8FB",
   },
+  loadingText: { color: "#627184", fontSize: 15, marginTop: 8 },
   scroll: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 90,
-    paddingBottom: 32,
+    paddingTop: 36,
+    paddingBottom: 36,
   },
+  loginHero: { alignItems: "center", marginBottom: 28 },
   logoMark: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: "#183B66",
+    width: 132,
+    height: 132,
+    borderRadius: 36,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
+    shadowColor: "#263A52",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
+    marginBottom: 12,
   },
-  logoLetter: { color: "#FFFFFF", fontSize: 36, fontWeight: "800" },
+  loginLogo: { width: 110, height: 110 },
+  loginBrand: { color: "#183B66", fontSize: 22, fontWeight: "800" },
+  loginIntro: { alignItems: "center", marginBottom: 24 },
   brand: {
     color: "#183B66",
     fontSize: 21,
@@ -298,15 +311,28 @@ const styles = StyleSheet.create({
     color: "#172536",
     fontSize: 30,
     fontWeight: "800",
-    marginBottom: 10,
+    marginBottom: 8,
+    textAlign: "center",
   },
   subtitle: {
     color: "#627184",
     fontSize: 15,
     lineHeight: 23,
-    marginBottom: 32,
+    textAlign: "center",
   },
-  form: { width: "100%" },
+  form: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E8EDF3",
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: "#263A52",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+    elevation: 2,
+  },
   label: { color: "#172536", fontSize: 14, fontWeight: "700", marginBottom: 8 },
   input: {
     height: 52,
@@ -346,6 +372,7 @@ const styles = StyleSheet.create({
     marginTop: 28,
   },
   buttonDisabled: { opacity: 0.7 },
+  buttonLoading: { flexDirection: "row", alignItems: "center", gap: 8 },
   buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   help: {
     color: "#627184",
@@ -354,7 +381,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 22,
   },
-  home: { flex: 1, backgroundColor: "#F6F8FB", padding: 24, paddingTop: 90 },
+  home: { flex: 1, backgroundColor: "#F6F8FB" },
+  homeContent: { padding: 24, paddingTop: 70, paddingBottom: 40 },
   welcomeCard: {
     backgroundColor: "#FFFFFF",
     padding: 24,
@@ -376,6 +404,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   welcomeText: { color: "#627184", fontSize: 15, lineHeight: 23 },
+  catalogLinks: { gap: 12, marginBottom: 24 },
+  catalogLink: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E8EDF3", borderRadius: 18, padding: 18, flexDirection: "row", alignItems: "center", gap: 14 },
+  catalogLinkIcon: { width: 46, height: 46, textAlign: "center", textAlignVertical: "center", overflow: "hidden", borderRadius: 13, backgroundColor: "#EAF4FF", color: "#1677D2", fontSize: 25, fontWeight: "700" },
+  catalogLinkBody: { flex: 1 },
+  catalogLinkTitle: { color: "#172536", fontSize: 17, fontWeight: "800" },
+  catalogLinkDescription: { color: "#627184", fontSize: 13, lineHeight: 19, marginTop: 4 },
+  catalogLinkArrow: { color: "#1677D2", fontSize: 30, lineHeight: 32 },
   outlineButton: {
     height: 52,
     borderWidth: 1,
