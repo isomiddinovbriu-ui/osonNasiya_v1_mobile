@@ -30,6 +30,12 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Mijoz manzilining koordinatalarini kiritish uchun joylashuvga ruxsat bering."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Mahsulot rasmlarini tanlash uchun suratlaringizga ruxsat bering.",

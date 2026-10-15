@@ -2,13 +2,13 @@ import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { API_URL, ApiError, apiRequest } from "./api";
 import LoadingMark from "./LoadingMark";
 
 type Category = { id: string; name: string; parentId: string | null; createdAt: string };
 type Product = { id: string; categoryId: string; name: string; title: string; originalPrice: number | null; minSellingPrice: number | null; images: { id: string; url: string }[] };
-type Props = { token: string; onSessionExpired: () => Promise<void>; mode: "groups" | "sections" | "products"; initialGroupId?: string | null; initialSectionId?: string | null };
+type Props = { token: string; onSessionExpired: () => Promise<void>; onBusyChange: (busy: boolean) => void; mode: "groups" | "sections" | "products"; initialGroupId?: string | null; initialSectionId?: string | null };
 
 function newestCategory(items: Category[]) {
   return items.reduce<Category | null>((newest, item) =>
@@ -24,7 +24,7 @@ function parsePrice(value: string) {
   return /^\d+$/.test(value) && Number.isSafeInteger(price) && price > 0 ? price : null;
 }
 
-export default function CatalogManagement({ token, onSessionExpired, mode, initialGroupId = null, initialSectionId = null }: Props) {
+export default function CatalogManagement({ token, onSessionExpired, onBusyChange, mode, initialGroupId = null, initialSectionId = null }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [preferredGroupId, setPreferredGroupId] = useState<string | null>(initialGroupId);
@@ -43,10 +43,20 @@ export default function CatalogManagement({ token, onSessionExpired, mode, initi
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  useEffect(() => {
+    if (!success) return;
+    const timer = setTimeout(() => setSuccess(""), 2000);
+    return () => clearTimeout(timer);
+  }, [success]);
+
   const headers = { Authorization: `Bearer ${token}` };
   const handleError = useCallback(async (cause: unknown) => {
     if (cause instanceof ApiError && cause.status === 401) {
       await onSessionExpired();
+      return;
+    }
+    if (cause instanceof ApiError && cause.status === 409) {
+      setError(cause.message || "Bu mahsulot savdoga biriktirilgan, uni o‘chirib bo‘lmaydi.");
       return;
     }
     setError(cause instanceof Error ? cause.message : "Amalni bajarib bo‘lmadi.");
@@ -72,7 +82,9 @@ export default function CatalogManagement({ token, onSessionExpired, mode, initi
   useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
 
   async function run(action: () => Promise<void>, message: string) {
+    Keyboard.dismiss();
     setBusy(true);
+    onBusyChange(true);
     setError("");
     setSuccess("");
     try {
@@ -82,6 +94,7 @@ export default function CatalogManagement({ token, onSessionExpired, mode, initi
       await handleError(cause);
     } finally {
       setBusy(false);
+      onBusyChange(false);
     }
   }
 
@@ -297,7 +310,6 @@ export default function CatalogManagement({ token, onSessionExpired, mode, initi
         <Pressable onPress={() => void refresh()} disabled={loading || busy} accessibilityRole="button"><Text style={styles.link}>Yangilash</Text></Pressable>
       </View>
       {loading && <View style={styles.loading}><LoadingMark size={54} /><Text style={styles.hint}>Katalog yuklanmoqda...</Text></View>}
-      {busy && <View style={styles.loading}><LoadingMark size={42} /><Text style={styles.hint}>Amal bajarilmoqda...</Text></View>}
       {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
       {!!success && <Text style={styles.success} accessibilityRole="alert">{success}</Text>}
       {mode === "groups" ? <>

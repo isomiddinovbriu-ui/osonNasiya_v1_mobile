@@ -1,12 +1,14 @@
+import { BlurTargetView, BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, apiRequest, type AuthResult, type User } from "./api";
-import StaffManagement from "./StaffManagement";
+import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
 import { deleteStoredToken, getStoredToken, setStoredToken } from "./session";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -25,7 +27,7 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const blurTargetRef = useRef<View | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -37,7 +39,6 @@ export default function App() {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (active) {
-            setToken(token);
             setUser(result.user);
           }
         }
@@ -63,12 +64,14 @@ export default function App() {
   }, []);
 
   async function signIn() {
+    if (loading) return;
     const normalizedLogin = login.trim();
     if (!normalizedLogin || !password) {
       setError("Login va parolni kiriting.");
       return;
     }
     setError("");
+    Keyboard.dismiss();
     setLoading(true);
     try {
       const result = await apiRequest<AuthResult>("/auth/login", {
@@ -77,7 +80,6 @@ export default function App() {
       });
       await setStoredToken(result.token);
       setPassword("");
-      setToken(result.token);
       setUser(result.user);
     } catch (err) {
       setError(
@@ -90,14 +92,8 @@ export default function App() {
 
   async function signOut() {
     await deleteStoredToken();
-    setToken(null);
     setUser(null);
     setPassword("");
-  }
-
-  async function handleSessionExpired() {
-    await signOut();
-    setError("Sessiya tugadi. Qayta kiring.");
   }
 
   if (checking)
@@ -123,37 +119,39 @@ export default function App() {
           <Text style={styles.welcomeTitle}>Xush kelibsiz, {user.login}</Text>
           <Text style={styles.welcomeText}>
             {user.role === "super_admin"
-              ? "Xodimlarni yaratish va ro‘yxatini boshqarish"
+              ? "Xodimlar va mahsulotlar katalogini boshqarish"
               : user.role === "product_creator"
                 ? "Guruhlar, bo‘limlar va mahsulotlarni boshqarish"
-              : "Hisobingizga muvaffaqiyatli kirdingiz."}
+              : user.role === "sotuvchi"
+                ? "Mijoz va uning savdo ma’lumotlarini kiriting."
+                : "Hisobingizga muvaffaqiyatli kirdingiz."}
           </Text>
         </View>
-        {user.role === "super_admin" && token && (
-          <StaffManagement token={token} onSessionExpired={handleSessionExpired} />
-        )}
-        {user.role === "product_creator" && <View style={styles.catalogLinks}>
-          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/groups")} accessibilityRole="button">
-            <Text style={styles.catalogLinkIcon}>▦</Text>
-            <View style={styles.catalogLinkBody}>
-              <Text style={styles.catalogLinkTitle}>Guruhlar uchun amallar</Text>
-              <Text style={styles.catalogLinkDescription}>Guruhlarni yarating va boshqaring</Text>
-            </View>
-            <Text style={styles.catalogLinkArrow}>›</Text>
-          </Pressable>
-          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/sections")} accessibilityRole="button">
-            <Text style={styles.catalogLinkIcon}>☷</Text>
-            <View style={styles.catalogLinkBody}>
-              <Text style={styles.catalogLinkTitle}>Bo‘limlar uchun amallar</Text>
-              <Text style={styles.catalogLinkDescription}>Guruh bo‘yicha bo‘limlarni boshqaring</Text>
-            </View>
-            <Text style={styles.catalogLinkArrow}>›</Text>
-          </Pressable>
-          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/products")} accessibilityRole="button">
+        {user.role === "super_admin" && <View style={styles.catalogLinks}>
+          <Pressable style={styles.catalogLink} onPress={() => router.push("/catalog/home")} accessibilityRole="button">
             <Text style={styles.catalogLinkIcon}>▣</Text>
             <View style={styles.catalogLinkBody}>
-              <Text style={styles.catalogLinkTitle}>Mahsulotlar uchun amallar</Text>
-              <Text style={styles.catalogLinkDescription}>Mahsulot qo‘shing, rasmlarini boshqaring</Text>
+              <Text style={styles.catalogLinkTitle}>Mahsulotlar uchun</Text>
+              <Text style={styles.catalogLinkDescription}>Guruh, bo‘lim va mahsulotlarni boshqaring</Text>
+            </View>
+            <Text style={styles.catalogLinkArrow}>›</Text>
+          </Pressable>
+          <Pressable style={styles.catalogLink} onPress={() => router.push("/staff")} accessibilityRole="button">
+            <Text style={styles.catalogLinkIcon}>♙</Text>
+            <View style={styles.catalogLinkBody}>
+              <Text style={styles.catalogLinkTitle}>Xodimlar uchun</Text>
+              <Text style={styles.catalogLinkDescription}>Xodimlarni yarating va tahrirlang</Text>
+            </View>
+            <Text style={styles.catalogLinkArrow}>›</Text>
+          </Pressable>
+        </View>}
+        {user.role === "product_creator" && <CatalogMenu />}
+        {user.role === "sotuvchi" && <View style={styles.catalogLinks}>
+          <Pressable style={styles.catalogLink} onPress={() => router.push("/customers/new")} accessibilityRole="button">
+            <Text style={styles.catalogLinkIcon}>＋</Text>
+            <View style={styles.catalogLinkBody}>
+              <Text style={styles.catalogLinkTitle}>Yangi mijoz yaratish</Text>
+              <Text style={styles.catalogLinkDescription}>Mahsulot, hudud va to‘lov ma’lumotlarini kiriting</Text>
             </View>
             <Text style={styles.catalogLinkArrow}>›</Text>
           </Pressable>
@@ -166,15 +164,17 @@ export default function App() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <View style={styles.root}>
       <StatusBar style="dark" />
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
+      <BlurTargetView ref={blurTargetRef} style={styles.contentLayer}>
+        <KeyboardAvoidingView
+          style={styles.contentLayer}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.loginHero}>
           <View style={styles.logoMark}>
             <Image
@@ -248,26 +248,37 @@ export default function App() {
             onPress={signIn}
             disabled={loading}
           >
-            {loading ? (
-              <View style={styles.buttonLoading}>
-                <LoadingMark size={32} />
-                <Text style={styles.buttonText}>Kirilmoqda...</Text>
-              </View>
-            ) : (
-              <Text style={styles.buttonText}>Kirish</Text>
-            )}
+            <Text style={styles.buttonText}>Kirish</Text>
           </Pressable>
           <Text style={styles.help}>
             Parolni unutdingizmi? Tizim administratoriga murojaat qiling.
           </Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+        </KeyboardAvoidingView>
+      </BlurTargetView>
+      {loading && <View style={styles.loadingOverlay} accessibilityViewIsModal>
+        <BlurView
+          blurTarget={blurTargetRef}
+          blurMethod="dimezisBlurView"
+          intensity={75}
+          tint="light"
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.loadingScrim} />
+        <View style={styles.loadingCard} accessibilityRole="progressbar" accessibilityLabel="Kirilmoqda">
+          <LoadingMark size={118} />
+          <Text style={styles.loadingTitle}>Kirilmoqda...</Text>
+          <Text style={styles.loadingHint}>Iltimos, kuting</Text>
+        </View>
+      </View>}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#F6F8FB" },
+  contentLayer: { flex: 1 },
   center: {
     flex: 1,
     alignItems: "center",
@@ -372,8 +383,12 @@ const styles = StyleSheet.create({
     marginTop: 28,
   },
   buttonDisabled: { opacity: 0.7 },
-  buttonLoading: { flexDirection: "row", alignItems: "center", gap: 8 },
   buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  loadingOverlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center", zIndex: 10 },
+  loadingScrim: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(246, 248, 251, 0.34)" },
+  loadingCard: { width: "78%", maxWidth: 320, alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 24, paddingVertical: 30, paddingHorizontal: 20, shadowColor: "#263A52", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.16, shadowRadius: 24, elevation: 10 },
+  loadingTitle: { color: "#172536", fontSize: 23, fontWeight: "800", marginTop: 8 },
+  loadingHint: { color: "#627184", fontSize: 14, marginTop: 6 },
   help: {
     color: "#627184",
     fontSize: 13,

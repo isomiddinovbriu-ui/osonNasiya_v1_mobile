@@ -23,7 +23,10 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
         const result = await apiRequest<{ user: User }>("/auth/me", {
           headers: { Authorization: `Bearer ${stored}` },
         });
-        if (result.user.role !== "product_creator") { router.replace("/"); return; }
+        if (result.user.role !== "product_creator" && result.user.role !== "super_admin") {
+          router.replace("/");
+          return;
+        }
         if (active) setToken(stored);
       } catch (cause) {
         if (cause instanceof ApiError && cause.status === 401) {
