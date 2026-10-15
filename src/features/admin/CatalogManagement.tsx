@@ -5,9 +5,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { API_URL, ApiError, apiRequest } from "./api";
 import LoadingMark from "./LoadingMark";
+import MoneyInput from "./MoneyInput";
+import { formatMoneyDigits, parseMoney } from "./money";
 
 type Category = { id: string; name: string; parentId: string | null; createdAt: string };
-type Product = { id: string; categoryId: string; name: string; title: string; originalPrice: number | null; minSellingPrice: number | null; images: { id: string; url: string }[] };
+type Product = { id: string; universalId: string; categoryId: string; name: string; title: string; originalPrice: number | null; minSellingPrice: number | null; images: { id: string; url: string }[] };
 type Props = { token: string; onSessionExpired: () => Promise<void>; onBusyChange: (busy: boolean) => void; mode: "groups" | "sections" | "products"; initialGroupId?: string | null; initialSectionId?: string | null };
 
 function newestCategory(items: Category[]) {
@@ -16,12 +18,12 @@ function newestCategory(items: Category[]) {
 }
 
 function formatPrice(price: number | null) {
-  return price === null ? "Kiritilmagan" : `${String(price).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} so‘m`;
+  return price === null ? "Kiritilmagan" : `${formatMoneyDigits(price)} so‘m`;
 }
 
 function parsePrice(value: string) {
-  const price = Number(value);
-  return /^\d+$/.test(value) && Number.isSafeInteger(price) && price > 0 ? price : null;
+  const price = parseMoney(value);
+  return price !== null && price > 0 ? price : null;
 }
 
 export default function CatalogManagement({ token, onSessionExpired, onBusyChange, mode, initialGroupId = null, initialSectionId = null }: Props) {
@@ -370,9 +372,9 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       <Text style={styles.label}>Sarlavha</Text>
       <TextInput style={styles.input} value={productTitle} onChangeText={setProductTitle} placeholder="Qisqa tavsif" maxLength={200} editable={!busy} />
       <Text style={styles.label}>Asl narx (so‘m)</Text>
-      <TextInput style={styles.input} value={originalPrice} onChangeText={setOriginalPrice} placeholder="Masalan: 3000000" keyboardType="number-pad" maxLength={16} editable={!busy} />
+      <MoneyInput value={originalPrice} onChangeText={setOriginalPrice} placeholder="3 000 000" editable={!busy} />
       <Text style={styles.label}>Eng past sotilish narxi (so‘m)</Text>
-      <TextInput style={styles.input} value={minSellingPrice} onChangeText={setMinSellingPrice} placeholder="Masalan: 2800000" keyboardType="number-pad" maxLength={16} editable={!busy} />
+      <MoneyInput value={minSellingPrice} onChangeText={setMinSellingPrice} placeholder="2 800 000" editable={!busy} />
       <Text style={styles.hint}>Mijozga sotuv narxi bundan kam bo‘lishi mumkin emas.</Text>
       <Action title="Mahsulotni yaratish" onPress={saveProduct} disabled={busy} />
       <Action title="Bekor qilish" onPress={() => { setFormOpen(false); clearProductForm(); }} disabled={busy} secondary />
@@ -387,6 +389,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
         return <View key={product.id} style={styles.itemCard}>
           <Text style={styles.itemType}>MAHSULOT</Text>
           <Text style={styles.itemName}>{product.name}</Text>
+          <Text style={styles.hint}>Kod: {product.universalId}</Text>
           <Text style={styles.hint}>{product.title}</Text>
           <Text style={styles.priceText}>Asl narx: {formatPrice(product.originalPrice)}</Text>
           <Text style={styles.priceText}>Eng past sotilish narxi: {formatPrice(product.minSellingPrice)}</Text>
@@ -396,9 +399,9 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
             <Text style={styles.label}>Sarlavha</Text>
             <TextInput style={styles.input} value={productTitle} onChangeText={setProductTitle} maxLength={200} editable={!busy} />
             <Text style={styles.label}>Asl narx (so‘m)</Text>
-            <TextInput style={styles.input} value={originalPrice} onChangeText={setOriginalPrice} placeholder="Masalan: 3000000" keyboardType="number-pad" maxLength={16} editable={!busy} />
+            <MoneyInput value={originalPrice} onChangeText={setOriginalPrice} placeholder="3 000 000" editable={!busy} />
             <Text style={styles.label}>Eng past sotilish narxi (so‘m)</Text>
-            <TextInput style={styles.input} value={minSellingPrice} onChangeText={setMinSellingPrice} placeholder="Masalan: 2800000" keyboardType="number-pad" maxLength={16} editable={!busy} />
+            <MoneyInput value={minSellingPrice} onChangeText={setMinSellingPrice} placeholder="2 800 000" editable={!busy} />
             <Action title="O‘zgarishni saqlash" onPress={saveProduct} disabled={busy} />
             <Action title="Bekor qilish" onPress={() => { setEditingProduct(null); clearProductForm(); }} disabled={busy} secondary />
           </> : <View style={styles.actions}>
