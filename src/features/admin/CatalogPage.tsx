@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, apiRequest, type User } from "./api";
 import CatalogManagement from "./CatalogManagement";
+import FullScreenLoading from "./FullScreenLoading";
 import LoadingMark from "./LoadingMark";
 import { deleteStoredToken, getStoredToken } from "./session";
 
@@ -13,6 +14,7 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
   const [token, setToken] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
+  const [mutationBusy, setMutationBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -43,12 +45,13 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
     return () => { active = false; };
   }, []);
 
-  async function handleSessionExpired() {
+  const handleSessionExpired = useCallback(async () => {
     await deleteStoredToken();
     router.replace("/");
-  }
+  }, []);
 
-  return <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+  return <FullScreenLoading active={mutationBusy} message="Saqlanmoqda...">
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
     <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button">
       <Text style={styles.backText}>‹  Orqaga</Text>
     </Pressable>
@@ -59,11 +62,13 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
       <CatalogManagement
         mode={mode}
         token={token}
+        onBusyChange={setMutationBusy}
         initialGroupId={typeof params.groupId === "string" ? params.groupId : null}
         initialSectionId={typeof params.sectionId === "string" ? params.sectionId : null}
         onSessionExpired={handleSessionExpired}
       /> : null}
-  </ScrollView>;
+    </ScrollView>
+  </FullScreenLoading>;
 }
 
 const styles = StyleSheet.create({

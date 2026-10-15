@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { ApiError, apiRequest, type User } from "./api";
+import FullScreenLoading from "./FullScreenLoading";
 import LoadingMark from "./LoadingMark";
 import { deleteStoredToken, getStoredToken } from "./session";
 
@@ -172,6 +173,7 @@ export default function CustomerCreatePage() {
       setRegionError("Hudud nomini 1–100 belgi bilan kiriting.");
       return;
     }
+    Keyboard.dismiss();
     setRegionBusy(true);
     try {
       const result = await apiRequest<{ region: Region }>("/regions", {
@@ -265,7 +267,8 @@ export default function CustomerCreatePage() {
     setRegionError("");
   }
 
-  return <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+  return <FullScreenLoading active={saving || regionBusy} message={regionBusy ? "Hudud yaratilmoqda..." : "Mijoz yaratilmoqda..."}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable onPress={() => router.back()} style={styles.back} accessibilityRole="button"><Text style={styles.link}>‹  Orqaga</Text></Pressable>
       <Text style={styles.eyebrow}>SOTUV</Text>
@@ -347,7 +350,8 @@ export default function CustomerCreatePage() {
         </View>
       </>}
     </ScrollView>
-  </KeyboardAvoidingView>;
+    </KeyboardAvoidingView>
+  </FullScreenLoading>;
 }
 
 function Field({ label, value, onChangeText, placeholder, keyboardType, maxLength, autoCapitalize }: {
