@@ -2,6 +2,7 @@ import { BlurTargetView, BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { router, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { SymbolView } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
@@ -17,6 +18,7 @@ import {
 import { ApiError, apiRequest, type AuthResult, type User } from "./api";
 import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
+import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken, setStoredToken } from "./session";
 
 function VisibilityIcon({ visible }: { visible: boolean }) {
@@ -37,6 +39,7 @@ export default function App() {
   const [useSystemKeyboard, setUseSystemKeyboard] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -123,6 +126,30 @@ export default function App() {
     setPassword("");
   }
 
+  async function refreshSession() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError("");
+    try {
+      const token = await getStoredToken();
+      if (!token) { setUser(null); return; }
+      const result = await apiRequest<{ user: User }>("/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUser(result.user);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        await deleteStoredToken();
+        setUser(null);
+        setError("Sessiya tugadi. Qayta kiring.");
+      } else {
+        setError(cause instanceof Error ? cause.message : "Yangilab bo‘lmadi.");
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   if (checking)
     return (
       <View style={styles.center}>
@@ -141,17 +168,26 @@ export default function App() {
             style={styles.home}
             contentContainerStyle={styles.homeContent}
             keyboardShouldPersistTaps="handled"
+            refreshControl={<PullRefreshControl refreshing={refreshing} onRefresh={() => { void refreshSession(); }} />}
           >
+            <PullRefreshFeedback active={refreshing} />
+            {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
             <View style={styles.homeHeader}>
               <Text style={styles.brand}>OsonNasiya</Text>
               <Pressable
-                style={styles.signOutIconButton}
+                style={({ pressed }) => [
+                  styles.signOutIconButton,
+                  pressed && styles.signOutIconButtonPressed,
+                ]}
                 onPress={() => setConfirmSignOut(true)}
                 accessibilityRole="button"
                 accessibilityLabel="Akkauntdan chiqish"
               >
-                <View style={styles.signOutDoor} />
-                <Text style={styles.signOutArrow}>→</Text>
+                <SymbolView
+                  name={{ ios: "rectangle.portrait.and.arrow.right", android: "logout", web: "logout" }}
+                  tintColor="#C3333D"
+                  size={23}
+                />
               </Pressable>
             </View>
             <View style={styles.welcomeCard}>
@@ -251,7 +287,12 @@ export default function App() {
               tint="light"
               style={StyleSheet.absoluteFill}
             />
-            <View style={styles.signOutScrim} />
+            <Pressable
+              style={styles.signOutScrim}
+              onPress={() => setConfirmSignOut(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Chiqish oynasini yopish"
+            />
             <View style={styles.signOutCard}>
               <Text style={styles.signOutTitle}>
                 Akkauntdan chiqmoqchimisiz?
@@ -290,7 +331,9 @@ export default function App() {
           <ScrollView
             contentContainerStyle={styles.scroll}
             keyboardShouldPersistTaps="handled"
+            refreshControl={<PullRefreshControl refreshing={refreshing} onRefresh={() => { if (!loading) void refreshSession(); }} />}
           >
+            <PullRefreshFeedback active={refreshing} />
             <Text style={styles.screenTitle}>Avtorizatsiya</Text>
             <View style={styles.loginField}>
               <Text style={styles.label}>Login</Text>
@@ -751,26 +794,18 @@ const styles = StyleSheet.create({
     marginBottom: 44,
   },
   signOutIconButton: {
-    width: 44,
-    height: 44,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
+    backgroundColor: "#FFF1F2",
+    borderWidth: 1,
+    borderColor: "#F7C9CE",
   },
-  signOutDoor: {
-    width: 15,
-    height: 20,
-    borderWidth: 2,
-    borderColor: "#D33B45",
-    borderRightWidth: 0,
-    borderRadius: 2,
-  },
-  signOutArrow: {
-    color: "#D33B45",
-    fontSize: 22,
-    fontWeight: "700",
-    marginLeft: -3,
-    marginTop: -2,
+  signOutIconButtonPressed: {
+    backgroundColor: "#FCE1E4",
+    transform: [{ scale: 0.96 }],
   },
   signOutOverlay: {
     position: "absolute",

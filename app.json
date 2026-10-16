@@ -32,7 +32,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Mijoz manzilining koordinatalarini kiritish uchun joylashuvga ruxsat bering."
+          "locationWhenInUsePermission": "Yaqin mijozlarni topish va mijoz manzilini belgilash uchun joylashuvga ruxsat bering."
         }
       ],
       [

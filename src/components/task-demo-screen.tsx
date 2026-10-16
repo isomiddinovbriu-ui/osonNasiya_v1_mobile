@@ -30,7 +30,7 @@ export default function HomeScreen() {
   const [tasks, setTasks] = useState<Task[]>([
     { id: "1", title: "Bugungi rejalarni yozish", done: true },
     { id: "2", title: "Mobil ilova ustida ishlash", done: false },
-    { id: "3", title: "30 daqiqa ingliz tili o‘rganish", done: false },
+    { id: "3", title: "30 daqiqa ingliz tili o'rganish", done: false },
   ]);
   const [title, setTitle] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -111,7 +111,7 @@ export default function HomeScreen() {
             <Text style={styles.heroDescription}>
               {tasks.length
                 ? `${tasks.length} ta vazifadan ${completed} tasi bajarildi.`
-                : "Birinchi vazifangizni qo‘shib boshlang."}
+                : "Birinchi vazifangizni qo'shib boshlang."}
             </Text>
 
             <View
@@ -162,7 +162,7 @@ export default function HomeScreen() {
               onPress={addTask}
               disabled={!title.trim()}
               accessibilityRole="button"
-              accessibilityLabel="Vazifa qo‘shish"
+              accessibilityLabel="Vazifa qo'shish"
               style={({ pressed }) => [
                 styles.addButton,
                 !title.trim() && styles.disabled,
@@ -231,16 +231,16 @@ export default function HomeScreen() {
             {visibleTasks.length === 0 && (
               <View style={styles.empty}>
                 <Text style={styles.emptyIcon}>✦</Text>
-                <Text style={styles.emptyTitle}>Hozircha vazifa yo‘q</Text>
+                <Text style={styles.emptyTitle}>Hozircha vazifa yo'q</Text>
                 <Text style={styles.emptyText}>
-                  Yangi vazifa qo‘shing yoki boshqa filtrni tanlang.
+                  Yangi vazifa qo'shing yoki boshqa filtrni tanlang.
                 </Text>
               </View>
             )}
           </View>
 
           <Text style={styles.footer}>
-            O‘zingizga bergan va’dadan boshlang.
+            O'zingizga bergan va’dadan boshlang.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>

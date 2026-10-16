@@ -27,15 +27,15 @@ export async function apiRequest<T>(
     });
     const data = response.status === 204 ? null : await response.json();
     if (!response.ok) {
-      throw new ApiError(data?.message || "So‘rov bajarilmadi.", response.status);
+      throw new ApiError(data?.message || "So'rov bajarilmadi.", response.status);
     }
     return data as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Server javob bermadi. Qayta urinib ko‘ring.");
+      throw new Error("Server javob bermadi. Qayta urinib ko'ring.");
     }
     if (error instanceof TypeError) {
-      throw new Error("Serverga ulanib bo‘lmadi. Wi-Fi va API manzilini tekshiring.");
+      throw new Error("Serverga ulanib bo'lmadi. Wi-Fi va API manzilini tekshiring.");
     }
     throw error;
   } finally {

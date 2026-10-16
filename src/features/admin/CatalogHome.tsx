@@ -4,12 +4,14 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, apiRequest, type User } from "./api";
 import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
+import { PullRefreshControl } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken } from "./session";
 
 export default function CatalogHome() {
   const [checking, setChecking] = useState(true);
   const [allowed, setAllowed] = useState(false);
   const [error, setError] = useState("");
+  const [refreshRequest, setRefreshRequest] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -38,9 +40,9 @@ export default function CatalogHome() {
     }
     void checkSession();
     return () => { active = false; };
-  }, []);
+  }, [refreshRequest]);
 
-  return <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+  return <ScrollView style={styles.screen} contentContainerStyle={styles.content} refreshControl={<PullRefreshControl refreshing={checking} onRefresh={() => { if (!checking) { setError(""); setChecking(true); setRefreshRequest((value) => value + 1); } }} />}>
     <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button">
       <Text style={styles.backText}>‹  Orqaga</Text>
     </Pressable>

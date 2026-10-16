@@ -3,8 +3,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 const links = [
   { title: "Guruhlar uchun amallar", description: "Guruhlarni yarating va boshqaring", icon: "▦", href: "/catalog/groups" },
-  { title: "Bo‘limlar uchun amallar", description: "Guruh bo‘yicha bo‘limlarni boshqaring", icon: "☷", href: "/catalog/sections" },
-  { title: "Mahsulotlar uchun amallar", description: "Mahsulot qo‘shing, rasmlarini boshqaring", icon: "▣", href: "/catalog/products" },
+  { title: "Bo'limlar uchun amallar", description: "Guruh bo'yicha bo'limlarni boshqaring", icon: "☷", href: "/catalog/sections" },
+  { title: "Mahsulotlar uchun amallar", description: "Mahsulot qo'shing, rasmlarini boshqaring", icon: "▣", href: "/catalog/products" },
 ] as const;
 
 export default function CatalogMenu() {

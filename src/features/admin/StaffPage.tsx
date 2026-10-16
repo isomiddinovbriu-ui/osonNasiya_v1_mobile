@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ApiError, apiRequest, type User } from "./api";
 import FullScreenLoading from "./FullScreenLoading";
 import LoadingMark from "./LoadingMark";
+import { PullRefreshControl } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken } from "./session";
 import StaffManagement from "./StaffManagement";
 
@@ -12,6 +13,10 @@ export default function StaffPage() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
   const [mutationBusy, setMutationBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshRequest, setRefreshRequest] = useState(0);
+  const [sessionRequest, setSessionRequest] = useState(0);
+  const onRefreshComplete = useCallback(() => setRefreshing(false), []);
 
   useEffect(() => {
     let active = true;
@@ -29,7 +34,7 @@ export default function StaffPage() {
           await deleteStoredToken();
           router.replace("/");
         } else if (active) {
-          setError(cause instanceof Error ? cause.message : "Xodimlar sahifasini ochib bo‘lmadi.");
+          setError(cause instanceof Error ? cause.message : "Xodimlar sahifasini ochib bo'lmadi.");
         }
       } finally {
         if (active) setChecking(false);
@@ -37,7 +42,7 @@ export default function StaffPage() {
     }
     void checkSession();
     return () => { active = false; };
-  }, []);
+  }, [sessionRequest]);
 
   const handleSessionExpired = useCallback(async () => {
     await deleteStoredToken();
@@ -45,7 +50,7 @@ export default function StaffPage() {
   }, []);
 
   return <FullScreenLoading active={mutationBusy} message="Xodim saqlanmoqda...">
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<PullRefreshControl refreshing={refreshing || checking} onRefresh={() => { if (mutationBusy || refreshing || checking) return; setError(""); if (token) { setRefreshing(true); setRefreshRequest((value) => value + 1); } else { setChecking(true); setSessionRequest((value) => value + 1); } }} />}>
     <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button">
       <Text style={styles.backText}>‹  Orqaga</Text>
     </Pressable>
@@ -54,7 +59,7 @@ export default function StaffPage() {
     <Text style={styles.subtitle}>Yangi xodim yarating yoki mavjud hisobni tahrirlang.</Text>
     {checking ? <View style={styles.center}><LoadingMark size={72} /></View> : error ?
       <Text style={styles.error} accessibilityRole="alert">{error}</Text> : token ?
-        <StaffManagement token={token} onSessionExpired={handleSessionExpired} onBusyChange={setMutationBusy} /> : null}
+        <StaffManagement token={token} onSessionExpired={handleSessionExpired} onBusyChange={setMutationBusy} refreshRequest={refreshRequest} onRefreshComplete={onRefreshComplete} /> : null}
     </ScrollView>
   </FullScreenLoading>;
 }

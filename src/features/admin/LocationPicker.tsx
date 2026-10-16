@@ -7,7 +7,7 @@ export default function LocationPicker({ visible, onClose }: {
 }) {
   return <Modal visible={visible} transparent onRequestClose={onClose}>
     <View style={styles.overlay}><View style={styles.card}>
-      <Text style={styles.text}>Xarita mobil ilovada ishlaydi. Brauzerda koordinatalarni qo‘lda kiriting.</Text>
+      <Text style={styles.text}>Xarita mobil ilovada ishlaydi. Brauzerda koordinatalarni qo'lda kiriting.</Text>
       <Pressable onPress={onClose} accessibilityRole="button"><Text style={styles.link}>Yopish</Text></Pressable>
     </View></View>
   </Modal>;

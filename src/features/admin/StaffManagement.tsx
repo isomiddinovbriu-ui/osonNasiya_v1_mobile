@@ -6,7 +6,7 @@ import LoadingMark from "./LoadingMark";
 type StaffRole = Exclude<User["role"], "super_admin">;
 
 const roleNames: Record<StaffRole, string> = {
-  yiguvchi: "Yig‘uvchi",
+  yiguvchi: "Yig'uvchi",
   sotuvchi: "Sotuvchi",
   product_creator: "Mahsulot qo'shuvchi",
 };
@@ -15,9 +15,11 @@ type Props = {
   token: string;
   onSessionExpired: () => Promise<void>;
   onBusyChange: (busy: boolean) => void;
+  refreshRequest?: number;
+  onRefreshComplete?: () => void;
 };
 
-export default function StaffManagement({ token, onSessionExpired, onBusyChange }: Props) {
+export default function StaffManagement({ token, onSessionExpired, onBusyChange, refreshRequest = 0, onRefreshComplete }: Props) {
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [listError, setListError] = useState("");
@@ -54,7 +56,7 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
       setListError(
         error instanceof Error
           ? error.message
-          : "Xodimlar ro‘yxatini olib bo‘lmadi.",
+          : "Xodimlar ro'yxatini olib bo'lmadi.",
       );
     } finally {
       setLoadingUsers(false);
@@ -64,6 +66,9 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
   useEffect(() => {
     void Promise.resolve().then(loadUsers);
   }, [loadUsers]);
+  useEffect(() => {
+    if (refreshRequest > 0) void Promise.resolve().then(loadUsers).finally(onRefreshComplete);
+  }, [refreshRequest, loadUsers, onRefreshComplete]);
 
   async function saveUser() {
     const normalizedLogin = login.trim().toLowerCase();
@@ -117,7 +122,7 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
         return;
       }
       setFormError(
-        error instanceof Error ? error.message : "Xodim yaratib bo‘lmadi.",
+        error instanceof Error ? error.message : "Xodim yaratib bo'lmadi.",
       );
     } finally {
       setCreating(false);
@@ -152,7 +157,7 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
           {editingUser ? "Xodimni tahrirlash" : "Yangi xodim"}
         </Text>
         <Text style={styles.subtitle}>
-          Yig‘uvchi, sotuvchi yoki mahsulot yaratuvchi uchun hisob yarating.
+          Yig'uvchi, sotuvchi yoki mahsulot yaratuvchi uchun hisob yarating.
         </Text>
 
         <Text style={styles.label}>Login</Text>
@@ -195,7 +200,7 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
             }}
             placeholder={
               editingUser
-                ? "O‘zgartirmaslik uchun bo‘sh qoldiring"
+                ? "O'zgartirmaslik uchun bo'sh qoldiring"
                 : "5 xonali raqam"
             }
             placeholderTextColor="#9AA6B5"
@@ -209,11 +214,11 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
           <Pressable
             onPress={() => setShowPassword((current) => !current)}
             accessibilityLabel={
-              showPassword ? "Parolni yashirish" : "Parolni ko‘rsatish"
+              showPassword ? "Parolni yashirish" : "Parolni ko'rsatish"
             }
           >
             <Text style={styles.showText}>
-              {showPassword ? "Yashirish" : "Ko‘rsatish"}
+              {showPassword ? "Yashirish" : "Ko'rsatish"}
             </Text>
           </Pressable>
         </View>
@@ -308,7 +313,7 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange 
           </Text>
         )}
         {!loadingUsers && !listError && users.length === 0 && (
-          <Text style={styles.empty}>Hozircha xodimlar yo‘q.</Text>
+          <Text style={styles.empty}>Hozircha xodimlar yo'q.</Text>
         )}
         {!loadingUsers &&
           users.map((item) => (

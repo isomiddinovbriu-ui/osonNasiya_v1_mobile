@@ -45,8 +45,10 @@ export default function LocationPicker({ visible, value, onClose, onSelect }: {
   return <Modal visible={visible} animationType="slide" onRequestClose={close}>
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={close} accessibilityRole="button"><Text style={styles.link}>Bekor qilish</Text></Pressable>
         <Text style={styles.title}>Manzilni belgilang</Text>
+        <Pressable onPress={close} style={styles.cancelButton} accessibilityRole="button">
+          <Text style={styles.cancelText}>Bekor qilish</Text>
+        </Pressable>
       </View>
       <Text style={styles.hint}>Xaritadagi kerakli joyga bosing.</Text>
       <MapView
@@ -69,8 +71,10 @@ export default function LocationPicker({ visible, value, onClose, onSelect }: {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#FFFFFF", paddingTop: 52 },
-  header: { paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 20, paddingBottom: 12 },
+  header: { paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingBottom: 12 },
   title: { color: "#172536", fontSize: 19, fontWeight: "800" },
+  cancelButton: { minHeight: 44, paddingHorizontal: 12, borderWidth: 1, borderColor: "#C3333D", borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  cancelText: { color: "#C3333D", fontSize: 14, fontWeight: "700" },
   hint: { color: "#627184", paddingHorizontal: 20, paddingBottom: 12 },
   map: { flex: 1 },
   footer: { padding: 20, gap: 10 },

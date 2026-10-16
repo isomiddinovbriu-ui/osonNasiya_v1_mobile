@@ -9,8 +9,8 @@ import MoneyInput from "./MoneyInput";
 import { formatMoneyDigits, parseMoney } from "./money";
 
 type Category = { id: string; name: string; parentId: string | null; createdAt: string };
-type Product = { id: string; universalId: string; categoryId: string; name: string; title: string; originalPrice: number | null; minSellingPrice: number | null; images: { id: string; url: string }[] };
-type Props = { token: string; onSessionExpired: () => Promise<void>; onBusyChange: (busy: boolean) => void; mode: "groups" | "sections" | "products"; initialGroupId?: string | null; initialSectionId?: string | null };
+type Product = { id: string; universalId: string; categoryId: string; name: string; title: string; originalPrice: number | null; minSellingPrice: number | null; warrantyPeriod: string | null; images: { id: string; url: string }[] };
+type Props = { token: string; onSessionExpired: () => Promise<void>; onBusyChange: (busy: boolean) => void; mode: "groups" | "sections" | "products"; initialGroupId?: string | null; initialSectionId?: string | null; refreshRequest?: number; onRefreshComplete?: () => void };
 
 function newestCategory(items: Category[]) {
   return items.reduce<Category | null>((newest, item) =>
@@ -18,7 +18,7 @@ function newestCategory(items: Category[]) {
 }
 
 function formatPrice(price: number | null) {
-  return price === null ? "Kiritilmagan" : `${formatMoneyDigits(price)} so‘m`;
+  return price === null ? "Kiritilmagan" : `${formatMoneyDigits(price)} so'm`;
 }
 
 function parsePrice(value: string) {
@@ -26,7 +26,7 @@ function parsePrice(value: string) {
   return price !== null && price > 0 ? price : null;
 }
 
-export default function CatalogManagement({ token, onSessionExpired, onBusyChange, mode, initialGroupId = null, initialSectionId = null }: Props) {
+export default function CatalogManagement({ token, onSessionExpired, onBusyChange, mode, initialGroupId = null, initialSectionId = null, refreshRequest = 0, onRefreshComplete }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [preferredGroupId, setPreferredGroupId] = useState<string | null>(initialGroupId);
@@ -37,6 +37,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
   const [productTitle, setProductTitle] = useState("");
   const [originalPrice, setOriginalPrice] = useState("");
   const [minSellingPrice, setMinSellingPrice] = useState("");
+  const [warrantyPeriod, setWarrantyPeriod] = useState("");
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -58,10 +59,10 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       return;
     }
     if (cause instanceof ApiError && cause.status === 409) {
-      setError(cause.message || "Bu mahsulot savdoga biriktirilgan, uni o‘chirib bo‘lmaydi.");
+      setError(cause.message || "Bu mahsulot savdoga biriktirilgan, uni o'chirib bo'lmaydi.");
       return;
     }
-    setError(cause instanceof Error ? cause.message : "Amalni bajarib bo‘lmadi.");
+    setError(cause instanceof Error ? cause.message : "Amalni bajarib bo'lmadi.");
   }, [onSessionExpired]);
 
   const refresh = useCallback(async () => {
@@ -82,6 +83,9 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
   }, [token, handleError]);
 
   useEffect(() => { void Promise.resolve().then(refresh); }, [refresh]);
+  useEffect(() => {
+    if (refreshRequest > 0) void Promise.resolve().then(refresh).finally(onRefreshComplete);
+  }, [refreshRequest, refresh, onRefreshComplete]);
 
   async function run(action: () => Promise<void>, message: string) {
     Keyboard.dismiss();
@@ -111,6 +115,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
     setProductTitle("");
     setOriginalPrice("");
     setMinSellingPrice("");
+    setWarrantyPeriod("");
   }
 
   function selectGroup(id: string | null) {
@@ -138,7 +143,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
 
   function saveCategory() {
     const name = categoryName.trim();
-    if (!name || name.length > 100) { setError("Nom 1–100 belgi bo‘lishi kerak."); return; }
+    if (!name || name.length > 100) { setError("Nom 1–100 belgi bo'lishi kerak."); return; }
     const parentId = mode === "groups" ? null : groupId;
     void run(async () => {
       if (editingCategory) {
@@ -161,7 +166,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       setCategoryName("");
       setEditingCategory(null);
       setFormOpen(false);
-    }, editingCategory ? "Nom yangilandi." : parentId ? "Bo‘lim yaratildi." : "Guruh yaratildi.");
+    }, editingCategory ? "Nom yangilandi." : parentId ? "Bo'lim yaratildi." : "Guruh yaratildi.");
   }
 
   function saveProduct() {
@@ -169,16 +174,20 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
     const title = productTitle.trim();
     const original = parsePrice(originalPrice);
     const minimum = parsePrice(minSellingPrice);
+    const warranty = warrantyPeriod.trim();
     if (!sectionId || !name || name.length > 100 || !title || title.length > 200) {
       setError("Mahsulot nomi (1–100) va sarlavhasini (1–200) kiriting."); return;
     }
     if (original === null || minimum === null) {
-      setError("Asl narx va eng past sotilish narxini musbat butun so‘mda kiriting."); return;
+      setError("Asl narx va eng past sotilish narxini musbat butun so'mda kiriting."); return;
+    }
+    if (!/^\d+(?:\.\d+)?$/.test(warranty)) {
+      setError("Kafolat muddatini 1.6 kabi kiriting."); return;
     }
     void run(async () => {
       const result = await apiRequest<{ product: Product }>(editingProduct ? `/products/${editingProduct}` : "/products", {
         method: editingProduct ? "PATCH" : "POST", headers,
-        body: JSON.stringify({ name, title, categoryId: sectionId, originalPrice: original, minSellingPrice: minimum }),
+        body: JSON.stringify({ name, title, categoryId: sectionId, originalPrice: original, minSellingPrice: minimum, warrantyPeriod: warranty }),
       });
       setProducts((items) => editingProduct
         ? items.map((item) => item.id === editingProduct ? result.product : item)
@@ -204,7 +213,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
         setProducts((items) => items.filter((item) => item.id !== id));
       }
       setConfirmDelete(null);
-    }, "O‘chirildi.");
+    }, "O'chirildi.");
   }
 
   async function uploadImage(product: Product) {
@@ -217,7 +226,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       if (result.canceled) return;
       const assets = result.assets;
       if (assets.length > remaining || assets.some((asset) => asset.fileSize && asset.fileSize > 5 * 1024 * 1024)) {
-        throw new Error("Jami 10 tagacha rasm, har biri 5 MB gacha bo‘lishi mumkin.");
+        throw new Error("Jami 10 tagacha rasm, har biri 5 MB gacha bo'lishi mumkin.");
       }
       const form = new FormData();
       for (const asset of assets) {
@@ -254,7 +263,7 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       });
       setProducts((items) => items.map((item) => item.id === product.id ? result.product : item));
       setConfirmDelete(null);
-    }, "Rasm o‘chirildi.");
+    }, "Rasm o'chirildi.");
   }
 
   function categoryRow(item: Category) {
@@ -270,31 +279,31 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       : router.push({ pathname: "/catalog/products", params: { groupId: item.parentId ?? "", sectionId: item.id } });
 
     return <View key={item.id} style={styles.itemCard}>
-      <Pressable onPress={openChildren} accessibilityRole="button" accessibilityLabel={isGroup ? `${item.name} guruhining bo‘limlari` : `${item.name} bo‘limining mahsulotlari`}>
-        <Text style={styles.itemType}>{isGroup ? "GURUH" : "BO‘LIM"}</Text>
+      <Pressable onPress={openChildren} accessibilityRole="button" accessibilityLabel={isGroup ? `${item.name} guruhining bo'limlari` : `${item.name} bo'limining mahsulotlari`}>
+        <Text style={styles.itemType}>{isGroup ? "GURUH" : "BO'LIM"}</Text>
         <Text style={styles.itemName}>{item.name}  <Text style={styles.itemArrow}>›</Text></Text>
-        <Text style={styles.hint}>{relatedCount} ta {isGroup ? "bo‘lim" : "mahsulot"}</Text>
+        <Text style={styles.hint}>{relatedCount} ta {isGroup ? "bo'lim" : "mahsulot"}</Text>
       </Pressable>
       {editing ? <>
         <Text style={styles.label}>Yangi nom</Text>
-        <TextInput style={styles.input} value={categoryName} onChangeText={setCategoryName} placeholder={isGroup ? "Guruh nomi" : "Bo‘lim nomi"} maxLength={100} editable={!busy} />
-        <Action title="O‘zgarishni saqlash" onPress={saveCategory} disabled={busy} />
+        <TextInput style={styles.input} value={categoryName} onChangeText={setCategoryName} placeholder={isGroup ? "Guruh nomi" : "Bo'lim nomi"} maxLength={100} editable={!busy} />
+        <Action title="O'zgarishni saqlash" onPress={saveCategory} disabled={busy} />
         <Action title="Bekor qilish" onPress={() => { setEditingCategory(null); setCategoryName(""); }} disabled={busy} secondary />
       </> : <>
         <Action
-          title={isGroup ? "Bo‘limlarini boshqarish  →" : "Mahsulotlarini boshqarish  →"}
+          title={isGroup ? "Bo'limlarini boshqarish  →" : "Mahsulotlarini boshqarish  →"}
           onPress={openChildren}
           disabled={busy}
         />
         <View style={styles.actions}>
-          <Action title="Nomini o‘zgartirish" onPress={() => { setFormOpen(false); setEditingCategory(item.id); setCategoryName(item.name); setConfirmDelete(null); }} disabled={busy} secondary />
-          <Action title="O‘chirish" onPress={() => setConfirmDelete("category:" + item.id)} disabled={busy} danger />
+          <Action title="Nomini o'zgartirish" onPress={() => { setFormOpen(false); setEditingCategory(item.id); setCategoryName(item.name); setConfirmDelete(null); }} disabled={busy} secondary />
+          <Action title="O'chirish" onPress={() => setConfirmDelete("category:" + item.id)} disabled={busy} danger />
         </View>
       </>}
       {deleting && <View style={styles.confirm}>
-        <Text style={styles.confirmText}>{isGroup ? "Guruhni" : "Bo‘limni"} o‘chirishni tasdiqlaysizmi? {relatedCount > 0 ? "Avval ichidagi yozuvlarni o‘chirish kerak." : ""}</Text>
+        <Text style={styles.confirmText}>{isGroup ? "Guruhni" : "Bo'limni"} o'chirishni tasdiqlaysizmi? {relatedCount > 0 ? "Avval ichidagi yozuvlarni o'chirish kerak." : ""}</Text>
         <View style={styles.actions}>
-          <Action title="Ha, o‘chirish" onPress={() => deleteItem("category", item.id)} disabled={busy || relatedCount > 0} danger />
+          <Action title="Ha, o'chirish" onPress={() => deleteItem("category", item.id)} disabled={busy || relatedCount > 0} danger />
           <Action title="Bekor qilish" onPress={() => setConfirmDelete(null)} disabled={busy} secondary />
         </View>
       </View>}
@@ -308,14 +317,14 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
   return <View>
     <View style={styles.card}>
       <View style={styles.heading}>
-        <Text style={styles.title}>{mode === "groups" ? "Guruhlar ro‘yxati" : mode === "sections" ? "Guruhni tanlang" : "Joylashuvni tanlang"}</Text>
+        <Text style={styles.title}>{mode === "groups" ? "Guruhlar ro'yxati" : mode === "sections" ? "Guruhni tanlang" : "Joylashuvni tanlang"}</Text>
         <Pressable onPress={() => void refresh()} disabled={loading || busy} accessibilityRole="button"><Text style={styles.link}>Yangilash</Text></Pressable>
       </View>
       {loading && <View style={styles.loading}><LoadingMark size={54} /><Text style={styles.hint}>Katalog yuklanmoqda...</Text></View>}
       {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
       {!!success && <Text style={styles.success} accessibilityRole="alert">{success}</Text>}
       {mode === "groups" ? <>
-        <Text style={styles.hint}>Guruh ustiga kirib, uning bo‘limlarini boshqaring.</Text>
+        <Text style={styles.hint}>Guruh ustiga kirib, uning bo'limlarini boshqaring.</Text>
         <Action title="+ Yangi guruh yaratish" onPress={() => { setFormOpen(true); setEditingCategory(null); setCategoryName(""); setConfirmDelete(null); }} disabled={busy} />
       </> : <>
         <Text style={styles.label}>Guruh</Text>
@@ -324,45 +333,45 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
         )}</View>
         {!loading && groups.length === 0 && <>
           <Text style={styles.hint}>Hali guruh yaratilmagan.</Text>
-          <Action title="Guruh yaratishga o‘tish  →" onPress={() => router.push("/catalog/groups")} secondary />
+          <Action title="Guruh yaratishga o'tish  →" onPress={() => router.push("/catalog/groups")} secondary />
         </>}
         {mode === "products" && !!groupId && <>
-          <Text style={styles.label}>Bo‘lim</Text>
+          <Text style={styles.label}>Bo'lim</Text>
           <View style={styles.wrap}>{sections.map((item) =>
             <Chip key={item.id} title={item.name} selected={sectionId === item.id} onPress={() => selectSection(item.id)} />
           )}</View>
-          {!loading && sections.length === 0 && <Action title="Bu guruhga bo‘lim yaratish  →" onPress={() => router.push({ pathname: "/catalog/sections", params: { groupId } })} secondary />}
+          {!loading && sections.length === 0 && <Action title="Bu guruhga bo'lim yaratish  →" onPress={() => router.push({ pathname: "/catalog/sections", params: { groupId } })} secondary />}
         </>}
-        {mode === "sections" && !!selectedGroup && <Text style={styles.hint}>“{selectedGroup.name}” guruhining bo‘limlari ko‘rsatilmoqda.</Text>}
-        {mode === "products" && !!selectedSection && <Text style={styles.hint}>“{selectedGroup?.name}” / “{selectedSection.name}” mahsulotlari ko‘rsatilmoqda.</Text>}
+        {mode === "sections" && !!selectedGroup && <Text style={styles.hint}>“{selectedGroup.name}” guruhining bo'limlari ko'rsatilmoqda.</Text>}
+        {mode === "products" && !!selectedSection && <Text style={styles.hint}>“{selectedGroup?.name}” / “{selectedSection.name}” mahsulotlari ko'rsatilmoqda.</Text>}
       </>}
     </View>
 
     {mode === "sections" && !!selectedGroup && <View style={styles.card}>
-      <Text style={styles.title}>“{selectedGroup.name}” bo‘limlari</Text>
-      <Text style={styles.hint}>Yangi bo‘lim shu guruhga qo‘shiladi.</Text>
-      <Action title="+ Yangi bo‘lim yaratish" onPress={() => { setFormOpen(true); setEditingCategory(null); setCategoryName(""); setConfirmDelete(null); }} disabled={busy} />
+      <Text style={styles.title}>“{selectedGroup.name}” bo'limlari</Text>
+      <Text style={styles.hint}>Yangi bo'lim shu guruhga qo'shiladi.</Text>
+      <Action title="+ Yangi bo'lim yaratish" onPress={() => { setFormOpen(true); setEditingCategory(null); setCategoryName(""); setConfirmDelete(null); }} disabled={busy} />
     </View>}
 
     {(mode === "groups" || mode === "sections") && formOpen && <View style={styles.card}>
-      <Text style={styles.title}>{mode === "groups" ? "Yangi guruh" : "Yangi bo‘lim"}</Text>
+      <Text style={styles.title}>{mode === "groups" ? "Yangi guruh" : "Yangi bo'lim"}</Text>
       <Text style={styles.hint}>{mode === "groups" ? "Masalan: Maishiy texnika" : "Masalan: Muzlatkichlar"}</Text>
-      <Text style={styles.label}>{mode === "groups" ? "Guruh nomi" : "Bo‘lim nomi"}</Text>
+      <Text style={styles.label}>{mode === "groups" ? "Guruh nomi" : "Bo'lim nomi"}</Text>
       <TextInput style={styles.input} value={categoryName} onChangeText={setCategoryName} placeholder="Nomini kiriting" maxLength={100} editable={!busy} />
-      <Action title={mode === "groups" ? "Guruhni yaratish" : "Bo‘limni yaratish"} onPress={saveCategory} disabled={busy} />
+      <Action title={mode === "groups" ? "Guruhni yaratish" : "Bo'limni yaratish"} onPress={saveCategory} disabled={busy} />
       <Action title="Bekor qilish" onPress={() => { setFormOpen(false); setCategoryName(""); }} disabled={busy} secondary />
     </View>}
 
     {(mode === "groups" || (mode === "sections" && !!selectedGroup)) && <View style={styles.list}>
-      <Text style={styles.listTitle}>{mode === "groups" ? "Mavjud guruhlar" : "Mavjud bo‘limlar"}  ·  {categoryItems.length}</Text>
-      {!loading && categoryItems.length === 0 && <Text style={styles.hint}>{mode === "groups" ? "Hali guruh yo‘q. Yuqoridagi tugma orqali birinchisini yarating." : "Bu guruhda bo‘lim yo‘q. Yuqoridagi tugma orqali yarating."}</Text>}
+      <Text style={styles.listTitle}>{mode === "groups" ? "Mavjud guruhlar" : "Mavjud bo'limlar"}  ·  {categoryItems.length}</Text>
+      {!loading && categoryItems.length === 0 && <Text style={styles.hint}>{mode === "groups" ? "Hali guruh yo'q. Yuqoridagi tugma orqali birinchisini yarating." : "Bu guruhda bo'lim yo'q. Yuqoridagi tugma orqali yarating."}</Text>}
       {categoryItems.map(categoryRow)}
     </View>}
 
     {mode === "products" && !!selectedSection && <View style={styles.card}>
       <Text style={styles.title}>“{selectedSection.name}” mahsulotlari</Text>
-      <Text style={styles.hint}>Yangi mahsulot shu bo‘limga qo‘shiladi.</Text>
-      <Action title="+ Yangi mahsulot qo‘shish" onPress={() => { setFormOpen(true); setEditingProduct(null); clearProductForm(); setConfirmDelete(null); }} disabled={busy} />
+      <Text style={styles.hint}>Yangi mahsulot shu bo'limga qo'shiladi.</Text>
+      <Action title="+ Yangi mahsulot qo'shish" onPress={() => { setFormOpen(true); setEditingProduct(null); clearProductForm(); setConfirmDelete(null); }} disabled={busy} />
     </View>}
 
     {mode === "products" && formOpen && !!selectedSection && <View style={styles.card}>
@@ -371,18 +380,20 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
       <TextInput style={styles.input} value={productName} onChangeText={setProductName} placeholder="Masalan: Muzlatkich" maxLength={100} editable={!busy} />
       <Text style={styles.label}>Sarlavha</Text>
       <TextInput style={styles.input} value={productTitle} onChangeText={setProductTitle} placeholder="Qisqa tavsif" maxLength={200} editable={!busy} />
-      <Text style={styles.label}>Asl narx (so‘m)</Text>
+      <Text style={styles.label}>Asl narx (so'm)</Text>
       <MoneyInput value={originalPrice} onChangeText={setOriginalPrice} placeholder="3 000 000" editable={!busy} />
-      <Text style={styles.label}>Eng past sotilish narxi (so‘m)</Text>
+      <Text style={styles.label}>Eng past sotilish narxi (so'm)</Text>
       <MoneyInput value={minSellingPrice} onChangeText={setMinSellingPrice} placeholder="2 800 000" editable={!busy} />
-      <Text style={styles.hint}>Mijozga sotuv narxi bundan kam bo‘lishi mumkin emas.</Text>
+      <Text style={styles.hint}>Mijozga sotuv narxi bundan kam bo'lishi mumkin emas.</Text>
+      <Text style={styles.label}>Kafolat muddati *</Text>
+      <TextInput style={styles.input} value={warrantyPeriod} onChangeText={(value) => setWarrantyPeriod(value.replace(",", "."))} placeholder="Masalan: 1.6" keyboardType="decimal-pad" maxLength={20} editable={!busy} />
       <Action title="Mahsulotni yaratish" onPress={saveProduct} disabled={busy} />
       <Action title="Bekor qilish" onPress={() => { setFormOpen(false); clearProductForm(); }} disabled={busy} secondary />
     </View>}
 
     {mode === "products" && !!selectedSection && <View style={styles.list}>
       <Text style={styles.listTitle}>Mavjud mahsulotlar  ·  {visibleProducts.length}</Text>
-      {!loading && visibleProducts.length === 0 && <Text style={styles.hint}>Bu bo‘limda hali mahsulot yo‘q.</Text>}
+      {!loading && visibleProducts.length === 0 && <Text style={styles.hint}>Bu bo'limda hali mahsulot yo'q.</Text>}
       {visibleProducts.map((product) => {
         const editing = editingProduct === product.id;
         const deleting = confirmDelete === "product:" + product.id;
@@ -393,34 +404,37 @@ export default function CatalogManagement({ token, onSessionExpired, onBusyChang
           <Text style={styles.hint}>{product.title}</Text>
           <Text style={styles.priceText}>Asl narx: {formatPrice(product.originalPrice)}</Text>
           <Text style={styles.priceText}>Eng past sotilish narxi: {formatPrice(product.minSellingPrice)}</Text>
+          <Text style={styles.priceText}>Kafolat muddati: {product.warrantyPeriod || "Kiritilmagan"}</Text>
           {editing ? <>
             <Text style={styles.label}>Mahsulot nomi</Text>
             <TextInput style={styles.input} value={productName} onChangeText={setProductName} maxLength={100} editable={!busy} />
             <Text style={styles.label}>Sarlavha</Text>
             <TextInput style={styles.input} value={productTitle} onChangeText={setProductTitle} maxLength={200} editable={!busy} />
-            <Text style={styles.label}>Asl narx (so‘m)</Text>
+            <Text style={styles.label}>Asl narx (so'm)</Text>
             <MoneyInput value={originalPrice} onChangeText={setOriginalPrice} placeholder="3 000 000" editable={!busy} />
-            <Text style={styles.label}>Eng past sotilish narxi (so‘m)</Text>
+            <Text style={styles.label}>Eng past sotilish narxi (so'm)</Text>
             <MoneyInput value={minSellingPrice} onChangeText={setMinSellingPrice} placeholder="2 800 000" editable={!busy} />
-            <Action title="O‘zgarishni saqlash" onPress={saveProduct} disabled={busy} />
+            <Text style={styles.label}>Kafolat muddati *</Text>
+            <TextInput style={styles.input} value={warrantyPeriod} onChangeText={(value) => setWarrantyPeriod(value.replace(",", "."))} placeholder="Masalan: 1.6" keyboardType="decimal-pad" maxLength={20} editable={!busy} />
+            <Action title="O'zgarishni saqlash" onPress={saveProduct} disabled={busy} />
             <Action title="Bekor qilish" onPress={() => { setEditingProduct(null); clearProductForm(); }} disabled={busy} secondary />
           </> : <View style={styles.actions}>
-            <Action title="Tahrirlash" onPress={() => { setFormOpen(false); setEditingProduct(product.id); setProductName(product.name); setProductTitle(product.title); setOriginalPrice(product.originalPrice?.toString() ?? ""); setMinSellingPrice(product.minSellingPrice?.toString() ?? ""); setConfirmDelete(null); }} disabled={busy} secondary />
-            <Action title="O‘chirish" onPress={() => setConfirmDelete("product:" + product.id)} disabled={busy} danger />
+            <Action title="Tahrirlash" onPress={() => { setFormOpen(false); setEditingProduct(product.id); setProductName(product.name); setProductTitle(product.title); setOriginalPrice(product.originalPrice?.toString() ?? ""); setMinSellingPrice(product.minSellingPrice?.toString() ?? ""); setWarrantyPeriod(product.warrantyPeriod ?? ""); setConfirmDelete(null); }} disabled={busy} secondary />
+            <Action title="O'chirish" onPress={() => setConfirmDelete("product:" + product.id)} disabled={busy} danger />
           </View>}
           {deleting && <View style={styles.confirm}>
-            <Text style={styles.confirmText}>“{product.name}” mahsulotini o‘chirishni tasdiqlaysizmi?</Text>
+            <Text style={styles.confirmText}>“{product.name}” mahsulotini o'chirishni tasdiqlaysizmi?</Text>
             <View style={styles.actions}>
-              <Action title="Ha, o‘chirish" onPress={() => deleteItem("product", product.id)} disabled={busy} danger />
+              <Action title="Ha, o'chirish" onPress={() => deleteItem("product", product.id)} disabled={busy} danger />
               <Action title="Bekor qilish" onPress={() => setConfirmDelete(null)} disabled={busy} secondary />
             </View>
           </View>}
           <Text style={styles.imageCount}>Rasmlar: {product.images.length}/10</Text>
           <View style={styles.wrap}>{product.images.map((image) => <View key={image.id} style={styles.imageBox}>
             <Image source={{ uri: (API_URL ?? "") + image.url }} style={styles.image} />
-            <Action title={confirmDelete === "image:" + image.id ? "O‘chirishni tasdiqlash" : "Rasmni o‘chirish"} onPress={() => deleteImage(product, image.id)} disabled={busy} danger />
+            <Action title={confirmDelete === "image:" + image.id ? "O'chirishni tasdiqlash" : "Rasmni o'chirish"} onPress={() => deleteImage(product, image.id)} disabled={busy} danger />
           </View>)}</View>
-          <Action title="+ Rasm qo‘shish" onPress={() => uploadImage(product)} disabled={busy || product.images.length >= 10} secondary />
+          <Action title="+ Rasm qo'shish" onPress={() => uploadImage(product)} disabled={busy || product.images.length >= 10} secondary />
         </View>;
       })}
     </View>}

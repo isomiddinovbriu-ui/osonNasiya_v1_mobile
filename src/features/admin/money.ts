@@ -17,7 +17,7 @@ export function parseMoney(value: string) {
 export function formatMoneyWithUnits(value: string | number) {
   const amount = typeof value === "number" ? value : parseMoney(value);
   if (amount === null || !Number.isSafeInteger(amount) || amount < 0) return null;
-  if (amount === 0) return "0 so‘m";
+  if (amount === 0) return "0 so'm";
   const parts: string[] = [];
   let remaining = amount;
   let unitIndex = 0;
@@ -27,5 +27,5 @@ export function formatMoneyWithUnits(value: string | number) {
     remaining = Math.floor(remaining / 1_000);
     unitIndex += 1;
   }
-  return `${parts.join(" ")} so‘m`;
+  return `${parts.join(" ")} so'm`;
 }

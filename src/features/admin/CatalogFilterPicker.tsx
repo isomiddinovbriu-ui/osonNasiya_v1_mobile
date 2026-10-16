@@ -40,7 +40,7 @@ export default function CatalogFilterPicker({ token, values, onChange, onSession
       setProducts(productResult.products);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) await onSessionExpired();
-      else setError(cause instanceof Error ? cause.message : "Ro‘yxatlar yuklanmadi.");
+      else setError(cause instanceof Error ? cause.message : "Ro'yxatlar yuklanmadi.");
     } finally { setLoading(false); }
   }, [token, onSessionExpired]);
 
@@ -59,7 +59,7 @@ export default function CatalogFilterPicker({ token, values, onChange, onSession
       detail: [item.universalId, item.title].filter(Boolean).join(" · "),
     })),
   };
-  const labels: Record<PickerKey, string> = { regionId: "Hudud", groupId: "Guruh", sectionId: "Bo‘lim", productId: "Mahsulot" };
+  const labels: Record<PickerKey, string> = { regionId: "Hudud", groupId: "Guruh", sectionId: "Bo'lim", productId: "Mahsulot" };
   const selectedNames: Record<PickerKey, string> = {
     regionId: regions.find((item) => item.id === values.regionId)?.name ?? "Barchasi",
     groupId: groups.find((item) => item.id === values.groupId)?.name ?? "Barchasi",
