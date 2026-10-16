@@ -1,6 +1,15 @@
+import { getStoredToken, refreshStoredSession } from "./session";
+
 export type UserRole = "super_admin" | "yiguvchi" | "sotuvchi" | "product_creator";
 export type User = { id: string; login: string; role: UserRole; name: string; description: string };
-export type AuthResult = { token: string; user: User };
+export type AuthResult = {
+  token: string;
+  accessToken: string;
+  expiresIn: number;
+  refreshExpiresAt: string;
+  refreshToken?: string;
+  user: User;
+};
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -17,14 +26,46 @@ export async function apiRequest<T>(
   if (!API_URL) {
     throw new Error("API manzili sozlanmagan. .env faylini tekshiring.");
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  const headers = new Headers(options.headers);
+  if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const bearer = headers.get("Authorization");
+  const authenticated = bearer?.startsWith("Bearer ") &&
+    !["/auth/login", "/auth/refresh", "/auth/logout"].includes(path);
+  if (authenticated) {
+    const currentToken = await getStoredToken();
+    if (currentToken) headers.set("Authorization", `Bearer ${currentToken}`);
+  }
+
+  async function send() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      return await fetch(`${API_URL}${path}`, {
+        ...options,
+        credentials: options.credentials ?? (path.startsWith("/auth/") ? "include" : "same-origin"),
+        headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   try {
-    const response = await fetch(`${API_URL}${path}`, {
-      ...options,
-      signal: controller.signal,
-      headers: { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...options.headers },
-    });
+    let response = await send();
+    if (response.status === 401 && authenticated) {
+      const failedToken = headers.get("Authorization")?.slice(7);
+      const currentToken = await getStoredToken();
+      const renewedToken = currentToken && currentToken !== failedToken
+        ? currentToken
+        : await refreshStoredSession();
+      if (renewedToken) {
+        headers.set("Authorization", `Bearer ${renewedToken}`);
+        response = await send();
+      }
+    }
     const data = response.status === 204 ? null : await response.json();
     if (!response.ok) {
       throw new ApiError(data?.message || "So'rov bajarilmadi.", response.status);
@@ -38,7 +79,5 @@ export async function apiRequest<T>(
       throw new Error("Serverga ulanib bo'lmadi. Wi-Fi va API manzilini tekshiring.");
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 }

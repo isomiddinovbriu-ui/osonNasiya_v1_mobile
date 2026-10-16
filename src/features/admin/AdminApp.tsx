@@ -19,7 +19,7 @@ import { ApiError, apiRequest, type AuthResult, type User } from "./api";
 import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
 import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
-import { deleteStoredToken, getStoredToken, setStoredToken } from "./session";
+import { deleteStoredToken, getStoredToken, logoutStoredSession, setStoredSession } from "./session";
 
 function VisibilityIcon({ visible }: { visible: boolean }) {
   return (
@@ -92,9 +92,10 @@ export default function App() {
     try {
       const result = await apiRequest<AuthResult>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ login: normalizedLogin, password }),
+        credentials: Platform.OS === "web" ? "include" : "omit",
+        body: JSON.stringify({ login: normalizedLogin, password, clientType: Platform.OS === "web" ? "web" : "mobile" }),
       });
-      await setStoredToken(result.token);
+      await setStoredSession(result);
       setPassword("");
       setUser(result.user);
     } catch (err) {
@@ -120,10 +121,15 @@ export default function App() {
   }
 
   async function signOut() {
-    await deleteStoredToken();
-    setConfirmSignOut(false);
-    setUser(null);
-    setPassword("");
+    try {
+      await logoutStoredSession();
+    } catch {
+      setError("Serverdagi sessiyani yopib bo‘lmadi.");
+    } finally {
+      setConfirmSignOut(false);
+      setUser(null);
+      setPassword("");
+    }
   }
 
   async function refreshSession() {

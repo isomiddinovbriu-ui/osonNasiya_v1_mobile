@@ -11,11 +11,14 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://192.168.11.133:3000"
+        "EXPO_PUBLIC_API_URL": "https://ruzi.wedding-day.uz.wedding-day.uz"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://ruzi.wedding-day.uz.wedding-day.uz"
+      }
     }
   },
   "submit": {
