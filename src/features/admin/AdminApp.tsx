@@ -166,6 +166,24 @@ export default function App() {
     );
 
   if (user) {
+    const homeActions: { title: string; href: Href }[] = [
+      ...(user.role === "super_admin"
+        ? [
+            { title: "Mahsulotlar", href: "/catalog/home" as Href },
+            { title: "Xodimlar", href: "/staff" as Href },
+          ]
+        : []),
+      ...(user.role === "sotuvchi"
+        ? [{ title: "Yangi mijoz", href: "/customers/new" as Href }]
+        : []),
+      { title: "Mijozlar", href: "/customers" as Href },
+    ];
+    const roleLabel = {
+      super_admin: "Super admin",
+      product_creator: "Mahsulotlar menejeri",
+      sotuvchi: "Sotuvchi",
+      yiguvchi: "Yig‘uvchi",
+    }[user.role];
     return (
       <View style={styles.root}>
         <StatusBar style="dark" />
@@ -196,92 +214,29 @@ export default function App() {
                 />
               </Pressable>
             </View>
-            <View style={styles.welcomeCard}>
-              <Text style={styles.eyebrow}>{user.role.toUpperCase()}</Text>
-              <Text style={styles.welcomeTitle}>
-                Xush kelibsiz, {user.login}
-              </Text>
-              <Text style={styles.welcomeText}>
-                {user.role === "super_admin"
-                  ? "Xodimlar va mahsulotlar katalogini boshqarish"
-                  : user.role === "product_creator"
-                    ? "Guruhlar, bo‘limlar va mahsulotlarni boshqarish"
-                    : user.role === "sotuvchi"
-                      ? "Mijoz va uning savdo ma’lumotlarini kiriting."
-                      : "Hisobingizga muvaffaqiyatli kirdingiz."}
-              </Text>
+            <View style={styles.homeIntro}>
+              <Text style={styles.homeGreeting}>Salom, {user.name || user.login}</Text>
+              <Text style={styles.homeRole}>{roleLabel}</Text>
             </View>
-            {user.role === "super_admin" && (
-              <View style={styles.catalogLinks}>
-                <Pressable
-                  style={styles.catalogLink}
-                  onPress={() => router.push("/catalog/home")}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.catalogLinkIcon}>▣</Text>
-                  <View style={styles.catalogLinkBody}>
-                    <Text style={styles.catalogLinkTitle}>
-                      Mahsulotlar uchun
-                    </Text>
-                    <Text style={styles.catalogLinkDescription}>
-                      Guruh, bo‘lim va mahsulotlarni boshqaring
-                    </Text>
-                  </View>
-                  <Text style={styles.catalogLinkArrow}>›</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.catalogLink}
-                  onPress={() => router.push("/staff")}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.catalogLinkIcon}>♙</Text>
-                  <View style={styles.catalogLinkBody}>
-                    <Text style={styles.catalogLinkTitle}>Xodimlar uchun</Text>
-                    <Text style={styles.catalogLinkDescription}>
-                      Xodimlarni yarating va tahrirlang
-                    </Text>
-                  </View>
-                  <Text style={styles.catalogLinkArrow}>›</Text>
-                </Pressable>
-              </View>
-            )}
             {user.role === "product_creator" && <CatalogMenu />}
-            <View style={styles.catalogLinks}>
-              <Pressable
-                style={styles.catalogLink}
-                onPress={() => router.push("/customers" as Href)}
-                accessibilityRole="button"
-              >
-                <Text style={styles.catalogLinkIcon}>▤</Text>
-                <View style={styles.catalogLinkBody}>
-                  <Text style={styles.catalogLinkTitle}>Mijozlar</Text>
-                  <Text style={styles.catalogLinkDescription}>
-                    Mijozlarni qidiring va ma’lumotlarini ko‘ring
-                  </Text>
-                </View>
-                <Text style={styles.catalogLinkArrow}>›</Text>
-              </Pressable>
-            </View>
-            {user.role === "sotuvchi" && (
-              <View style={styles.catalogLinks}>
+            <Text style={styles.homeSectionTitle}>Bo‘limlar</Text>
+            <View style={styles.homeMenu}>
+              {homeActions.map((action, index) => (
                 <Pressable
-                  style={styles.catalogLink}
-                  onPress={() => router.push("/customers/new")}
+                  key={action.title}
+                  style={({ pressed }) => [
+                    styles.homeMenuItem,
+                    index < homeActions.length - 1 && styles.homeMenuDivider,
+                    pressed && styles.homeMenuItemPressed,
+                  ]}
+                  onPress={() => router.push(action.href)}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.catalogLinkIcon}>＋</Text>
-                  <View style={styles.catalogLinkBody}>
-                    <Text style={styles.catalogLinkTitle}>
-                      Yangi mijoz yaratish
-                    </Text>
-                    <Text style={styles.catalogLinkDescription}>
-                      Mahsulot, hudud va to‘lov ma’lumotlarini kiriting
-                    </Text>
-                  </View>
-                  <Text style={styles.catalogLinkArrow}>›</Text>
+                  <Text style={styles.homeMenuTitle}>{action.title}</Text>
+                  <Text style={styles.homeMenuArrow}>›</Text>
                 </Pressable>
-              </View>
-            )}
+              ))}
+            </View>
           </ScrollView>
         </BlurTargetView>
         {confirmSignOut && (
@@ -792,12 +747,12 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   home: { flex: 1, backgroundColor: "#F6F8FB" },
-  homeContent: { padding: 24, paddingTop: 70, paddingBottom: 40 },
+  homeContent: { paddingHorizontal: 20, paddingTop: 62, paddingBottom: 40 },
   homeHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 44,
+    marginBottom: 40,
   },
   signOutIconButton: {
     width: 46,
@@ -862,57 +817,14 @@ const styles = StyleSheet.create({
   cancelAction: { backgroundColor: "#1677D2" },
   confirmAction: { backgroundColor: "#D33B45" },
   signOutActionText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
-  welcomeCard: {
-    backgroundColor: "#FFFFFF",
-    padding: 24,
-    borderRadius: 16,
-    marginTop: 12,
-    marginBottom: 24,
-  },
-  eyebrow: {
-    color: "#1677D2",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  welcomeTitle: {
-    color: "#172536",
-    fontSize: 25,
-    fontWeight: "800",
-    marginBottom: 10,
-  },
-  welcomeText: { color: "#627184", fontSize: 15, lineHeight: 23 },
-  catalogLinks: { gap: 12, marginBottom: 24 },
-  catalogLink: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E8EDF3",
-    borderRadius: 18,
-    padding: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  catalogLinkIcon: {
-    width: 46,
-    height: 46,
-    textAlign: "center",
-    textAlignVertical: "center",
-    overflow: "hidden",
-    borderRadius: 13,
-    backgroundColor: "#EAF4FF",
-    color: "#1677D2",
-    fontSize: 25,
-    fontWeight: "700",
-  },
-  catalogLinkBody: { flex: 1 },
-  catalogLinkTitle: { color: "#172536", fontSize: 17, fontWeight: "800" },
-  catalogLinkDescription: {
-    color: "#627184",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 4,
-  },
-  catalogLinkArrow: { color: "#1677D2", fontSize: 30, lineHeight: 32 },
+  homeIntro: { marginBottom: 35 },
+  homeGreeting: { color: "#172536", fontSize: 27, fontWeight: "800" },
+  homeRole: { color: "#627184", fontSize: 14, marginTop: 6 },
+  homeSectionTitle: { color: "#627184", fontSize: 13, fontWeight: "700", marginBottom: 12 },
+  homeMenu: { backgroundColor: "#FFFFFF", borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: "#E8EDF3" },
+  homeMenuItem: { minHeight: 65, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
+  homeMenuDivider: { borderBottomWidth: 1, borderBottomColor: "#EEF1F5" },
+  homeMenuItemPressed: { backgroundColor: "#F1F7FF" },
+  homeMenuTitle: { color: "#172536", fontSize: 16, fontWeight: "700" },
+  homeMenuArrow: { color: "#1677D2", fontSize: 27, lineHeight: 30 },
 });
