@@ -2,10 +2,14 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -155,6 +159,11 @@ export default function CustomerDetailPage() {
   const { mijoz_id } = useLocalSearchParams<{ mijoz_id: string }>();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [detailNames, setDetailNames] = useState<DetailNames | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [voidPayment, setVoidPayment] = useState<CustomerPayment | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidError, setVoidError] = useState("");
+  const [voidSaving, setVoidSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [amount, setAmount] = useState("");
@@ -256,12 +265,12 @@ export default function CustomerDetailPage() {
         return;
       }
       setPaymentToken(token);
-      const result = await apiRequest<{ customer: Customer }>(
-        `/customers/${mijoz_id}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const headers = { Authorization: `Bearer ${token}` };
+      const [result, session] = await Promise.all([
+        apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}`, { headers }),
+        apiRequest<{ user: User }>("/auth/me", { headers }),
+      ]);
+      setIsSuperAdmin(session.user.role === "super_admin");
       const names = await resolveDetailNames(result.customer, token);
       setDetailNames(names);
       setCustomer(result.customer);
@@ -359,6 +368,66 @@ export default function CustomerDetailPage() {
       }
     } finally {
       setSavingPayment(false);
+    }
+  }
+
+  function closeVoid() {
+    if (voidSaving) return;
+    setVoidPayment(null);
+    setVoidReason("");
+    setVoidError("");
+  }
+
+  async function confirmVoid() {
+    const reason = voidReason.trim();
+    if (!voidPayment || !customer || !mijoz_id || voidSaving) return;
+    if (reason.length < 1 || reason.length > 500) {
+      setVoidError("Sabab 1–500 belgidan iborat bo‘lishi kerak.");
+      return;
+    }
+    const paymentId = voidPayment.paymentId || voidPayment.id;
+    if (!paymentId) {
+      setVoidError("To‘lov IDsi topilmadi.");
+      return;
+    }
+    setVoidSaving(true);
+    setVoidError("");
+    try {
+      const token = await getStoredToken();
+      if (!token) {
+        router.replace("/");
+        return;
+      }
+      const result = await apiRequest<{ payment: CustomerPayment; customer: Customer }>(
+        `/customers/${mijoz_id}/payments/${encodeURIComponent(paymentId)}/void`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ reason }),
+        },
+      );
+      setCustomer(result.customer);
+      setVoidPayment(null);
+      setVoidReason("");
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        await deleteStoredToken();
+        router.replace("/");
+      } else {
+        setVoidError(cause instanceof ApiError && cause.status === 409
+          ? "Bu to‘lov allaqachon bekor qilingan. Ma’lumotlarni yangilang."
+          : cause instanceof Error ? cause.message : "To‘lov bekor qilinmadi.");
+        if (cause instanceof ApiError && cause.status === 409) {
+          // Keep the dialog open so the server's rejection remains visible.
+          const refreshed = await apiRequest<{ customer: Customer }>(
+            `/customers/${mijoz_id}`,
+            { headers: { Authorization: `Bearer ${await getStoredToken()}` } },
+          ).catch(() => null);
+          if (refreshed) setCustomer(refreshed.customer);
+        }
+      }
+    } finally {
+      setVoidSaving(false);
     }
   }
 
@@ -529,17 +598,16 @@ export default function CustomerDetailPage() {
               <Text style={styles.muted}>To‘lovlar yo‘q.</Text>
             )}
             {customer.payments.map((payment) => (
-              <View key={payment.paymentId || payment.id} style={styles.payment}>
+              <View key={payment.paymentId || payment.id} style={[styles.payment, payment.status === "voided" && styles.voidedPayment]}>
                 <View style={styles.headingRow}>
-                  <Text style={styles.paymentAmount}>
+                  <Text style={[styles.paymentAmount, payment.status === "voided" && styles.voidedAmount]}>
                     {formatMoney(payment.amount)}
                   </Text>
-                  <Text style={styles.muted}>
-                    {payment.type === "initial"
-                      ? "Boshlang'ich"
-                      : "Keyingi to'lov"}
+                  <Text style={[styles.paymentStatus, payment.status === "voided" ? styles.statusVoided : styles.statusActive]}>
+                    {payment.status === "voided" ? "Bekor qilingan" : "Faol"}
                   </Text>
                 </View>
+                <Row label="Turi" value={payment.type === "initial" ? "Boshlang‘ich" : "Keyingi to‘lov"} />
                 <Row
                   label="Usul"
                   value={payment.method === "payment_app" ? "O‘tkazma" : paymentOptions.options?.methods.find((item) => item.id === payment.method)?.label || methods[payment.method]}
@@ -570,9 +638,33 @@ export default function CustomerDetailPage() {
                     "Xodim nomi topilmadi"
                   }
                 />
+                {payment.status === "voided" ? (
+                  <>
+                    {!!payment.voidedAt && <Row label="Bekor qilingan sana" value={formatDate(payment.voidedAt)} />}
+                    {!!payment.voidedBy && <Row label="Bekor qilgan" value={detailNames?.users[payment.voidedBy] || payment.voidedBy} />}
+                    {!!payment.voidReason && <Row label="Sabab" value={payment.voidReason} />}
+                  </>
+                ) : isSuperAdmin && (
+                  <Pressable
+                    style={styles.voidButton}
+                    onPress={() => { setVoidPayment(payment); setVoidReason(""); setVoidError(""); }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.voidButtonText}>To‘lovni bekor qilish</Text>
+                  </Pressable>
+                )}
               </View>
             ))}
           </View>
+          {isSuperAdmin && (
+            <Pressable
+              style={styles.auditLink}
+              onPress={() => router.push({ pathname: "/customers/audit", params: { mijoz_id } })}
+              accessibilityRole="button"
+            >
+              <Text style={styles.auditLinkText}>Audit tarixini ko‘rish ›</Text>
+            </Pressable>
+          )}
           </>
           )}
           {paymentStep > 0 && customer.remainingBalance > 0 && (
@@ -780,6 +872,40 @@ export default function CustomerDetailPage() {
         </Pressable>
       </View>
     )}
+    <Modal visible={!!voidPayment} transparent animationType="fade" onRequestClose={closeVoid}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>To‘lovni bekor qilish</Text>
+          <Text style={styles.modalDescription}>
+            {voidPayment ? `${formatMoney(voidPayment.amount)} · ${voidPayment.paymentId || voidPayment.id}` : ""}
+          </Text>
+          <Text style={styles.modalDescription}>Bu amal mijozning to‘langan summasini kamaytiradi va qolgan qarzini oshiradi.</Text>
+          <TextInput
+            style={styles.reasonInput}
+            value={voidReason}
+            onChangeText={(value) => { setVoidReason(value); setVoidError(""); }}
+            placeholder="Bekor qilish sababini kiriting"
+            placeholderTextColor="#8A97A6"
+            multiline
+            maxLength={500}
+            editable={!voidSaving}
+            accessibilityLabel="Bekor qilish sababi"
+          />
+          <Text style={styles.reasonCount}>{voidReason.length}/500</Text>
+          {!!voidError && <Text style={styles.error} accessibilityRole="alert">{voidError}</Text>}
+          <View style={styles.modalActions}>
+            <Pressable style={styles.modalCancel} onPress={closeVoid} disabled={voidSaving} accessibilityRole="button">
+              <Text style={styles.modalCancelText}>Qaytish</Text>
+            </Pressable>
+            <Pressable style={[styles.modalConfirm, voidSaving && styles.disabled]} onPress={() => void confirmVoid()} disabled={voidSaving} accessibilityRole="button">
+              <Text style={styles.modalConfirmText}>{voidSaving ? "Bekor qilinmoqda..." : "Tasdiqlash"}</Text>
+            </Pressable>
+          </View>
+        </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
     </View>
   );
 }
@@ -1064,6 +1190,27 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   paymentAmount: { color: "#172536", fontSize: 17, fontWeight: "800" },
+  voidedPayment: { opacity: 0.8 },
+  voidedAmount: { textDecorationLine: "line-through", color: "#627184" },
+  paymentStatus: { fontSize: 12, fontWeight: "800", paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 },
+  statusActive: { color: "#16865A", backgroundColor: "#E8F7F0" },
+  statusVoided: { color: "#A62E38", backgroundColor: "#FFF1F1" },
+  voidButton: { alignSelf: "flex-start", paddingVertical: 10, marginTop: 5 },
+  voidButtonText: { color: "#C3333D", fontSize: 13, fontWeight: "700" },
+  auditLink: { alignItems: "center", paddingVertical: 16 },
+  auditLinkText: { color: "#1677D2", fontSize: 15, fontWeight: "700" },
+  modalBackdrop: { flex: 1, justifyContent: "center", padding: 20, backgroundColor: "rgba(23, 37, 54, 0.45)" },
+  modalScroll: { flexGrow: 1, justifyContent: "center" },
+  modalCard: { width: "100%", maxWidth: 420, alignSelf: "center", borderRadius: 18, backgroundColor: "#FFFFFF", padding: 20 },
+  modalTitle: { color: "#172536", fontSize: 20, fontWeight: "800", marginBottom: 8 },
+  modalDescription: { color: "#627184", fontSize: 14, lineHeight: 20, marginBottom: 12 },
+  reasonInput: { minHeight: 100, borderWidth: 1, borderColor: "#D7DFE8", borderRadius: 11, padding: 12, color: "#172536", fontSize: 15, textAlignVertical: "top" },
+  reasonCount: { color: "#627184", fontSize: 12, textAlign: "right", marginTop: 5 },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 16 },
+  modalCancel: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: "#EEF1F5" },
+  modalCancelText: { color: "#172536", fontWeight: "700" },
+  modalConfirm: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: "#C3333D" },
+  modalConfirmText: { color: "#FFFFFF", fontWeight: "700" },
   muted: { color: "#627184", fontSize: 13, lineHeight: 19 },
   error: { color: "#C3333D", fontSize: 14, marginBottom: 12 },
   loading: { alignItems: "center", paddingVertical: 40 },

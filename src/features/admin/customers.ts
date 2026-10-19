@@ -10,6 +10,10 @@ export type CustomerPayment = {
   cardLast4: string | null;
   provider: string | null;
   providerName: string | null;
+  status: "active" | "voided";
+  voidedAt: string | null;
+  voidedBy: string | null;
+  voidReason: string | null;
 };
 
 export type PaymentMethod = "cash" | "transfer" | "card" | "payment_app";
