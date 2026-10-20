@@ -10,11 +10,14 @@ const roleNames: Record<User["role"], string> = {
   product_creator: "Mahsulot yaratuvchi",
 };
 
-export default function StaffFilterPicker({ token, value, onChange, onSessionExpired }: {
+export default function StaffFilterPicker({ token, value, onChange, onSessionExpired, label = "Yaratgan xodim", emptyLabel = "Barchasi", allowedRoles }: {
   token: string;
   value: string;
   onChange: (value: string) => void;
   onSessionExpired: () => Promise<void>;
+  label?: string;
+  emptyLabel?: string;
+  allowedRoles?: User["role"][];
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,20 +53,20 @@ export default function StaffFilterPicker({ token, value, onChange, onSessionExp
 
   const selected = users.find((user) => user.id === value);
   const query = search.trim().toLocaleLowerCase();
-  const matches = users.filter((user) => `${user.name} ${user.login} ${roleNames[user.role]}`.toLocaleLowerCase().includes(query));
+  const matches = users.filter((user) => (!allowedRoles || allowedRoles.includes(user.role)) && `${user.name} ${user.login} ${roleNames[user.role]}`.toLocaleLowerCase().includes(query));
 
   if (loading) return <Text style={styles.hint}>Xodimlar yuklanmoqda...</Text>;
   if (error) return <View><Text style={styles.error} accessibilityRole="alert">{error}</Text><Pressable onPress={() => setRefreshKey((current) => current + 1)} accessibilityRole="button"><Text style={styles.link}>Qayta yuklash</Text></Pressable></View>;
 
   return <View>
-    <Text style={styles.label}>Yaratgan xodim</Text>
+    <Text style={styles.label}>{label}</Text>
     <Pressable style={styles.trigger} onPress={() => { setOpen((current) => !current); setSearch(""); }} accessibilityRole="button" accessibilityState={{ expanded: open }}>
-      <Text style={styles.triggerText} numberOfLines={1}>{selected ? `${selected.name} · ${selected.login}` : value ? "Tanlangan xodim" : "Barchasi"}</Text>
+      <Text style={styles.triggerText} numberOfLines={1}>{selected ? `${selected.name} · ${selected.login}` : value ? "Tanlangan xodim" : emptyLabel}</Text>
       <Text style={styles.link}>{open ? "Yopish" : "Tanlash"}</Text>
     </Pressable>
     {open && <View style={styles.options}>
       <TextInput style={styles.search} value={search} onChangeText={setSearch} placeholder="Ism yoki login bo'yicha qidiring" autoCapitalize="none" autoFocus maxLength={100} />
-      <Pressable style={styles.option} onPress={() => { onChange(""); setOpen(false); }} accessibilityRole="button"><Text style={[styles.optionName, !value && styles.selected]}>Barchasi</Text></Pressable>
+      <Pressable style={styles.option} onPress={() => { onChange(""); setOpen(false); }} accessibilityRole="button"><Text style={[styles.optionName, !value && styles.selected]}>{emptyLabel}</Text></Pressable>
       {matches.slice(0, visibleLimit).map((user) => <Pressable key={user.id} style={styles.option} onPress={() => { onChange(user.id); setOpen(false); }} accessibilityRole="button">
         <Text style={[styles.optionName, value === user.id && styles.selected]}>{user.name}</Text>
         <Text style={styles.detail}>{user.login} · {roleNames[user.role]}</Text>

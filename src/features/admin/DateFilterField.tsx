@@ -14,14 +14,15 @@ function dateValue(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-export default function DateFilterField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const today = new Date();
-  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+export default function DateFilterField({ label, value, onChange, todayKey }: { label: string; value: string; onChange: (value: string) => void; todayKey?: string }) {
+  const now = new Date();
+  const today = todayKey ?? dateValue(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayParts = parts(today)!;
+  const currentMonth = new Date(todayParts.year, todayParts.month, 1);
   const [open, setOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const selected = parts(value);
-    const today = new Date();
-    return new Date(selected?.year ?? today.getFullYear(), selected?.month ?? today.getMonth(), 1);
+    return new Date(selected?.year ?? todayParts.year, selected?.month ?? todayParts.month, 1);
   });
   const selected = parts(value);
   const year = visibleMonth.getFullYear();
@@ -33,14 +34,12 @@ export default function DateFilterField({ label, value, onChange }: { label: str
 
   function shiftMonth(delta: number) {
     const target = new Date(year, month + delta, 1);
-    const now = new Date();
-    if (target <= new Date(now.getFullYear(), now.getMonth(), 1)) setVisibleMonth(target);
+    if (target <= currentMonth) setVisibleMonth(target);
   }
 
   function chooseToday() {
-    const today = new Date();
-    onChange(dateValue(today.getFullYear(), today.getMonth(), today.getDate()));
-    setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    onChange(today);
+    setVisibleMonth(currentMonth);
     setOpen(false);
   }
 
@@ -72,7 +71,7 @@ export default function DateFilterField({ label, value, onChange }: { label: str
         {Array.from({ length: daysInMonth }, (_, index) => {
           const day = index + 1;
           const active = selected?.year === year && selected.month === month && selected.day === day;
-          const future = new Date(year, month, day) > new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const future = dateValue(year, month, day) > today;
           return <View key={day} style={styles.dayCell}>
             <Pressable style={[styles.dayButton, active && styles.selectedDay]} onPress={() => { onChange(dateValue(year, month, day)); setOpen(false); }} disabled={future} accessibilityRole="button" accessibilityLabel={`${day} ${months[month]} ${year}`} accessibilityState={{ selected: active, disabled: future }}>
               <Text style={[styles.dayText, active && styles.selectedDayText, future && styles.futureDayText]}>{day}</Text>

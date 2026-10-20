@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Keyboard, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ApiError, apiRequest, type User } from "./api";
 import LoadingMark from "./LoadingMark";
@@ -10,6 +10,31 @@ const roleNames: Record<StaffRole, string> = {
   sotuvchi: "Sotuvchi",
   product_creator: "Mahsulot qo'shuvchi",
 };
+
+const cyrillicToLatin: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "j", з: "z",
+  и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p",
+  р: "r", с: "s", т: "t", у: "u", ф: "f", х: "x", ц: "s", ч: "ch",
+  ш: "sh", щ: "sh", ъ: "", ы: "i", ь: "", э: "e", ю: "yu", я: "ya",
+  ғ: "g", қ: "q", ў: "o", ҳ: "h",
+};
+
+function loginBase(name: string) {
+  return name.trim().toLowerCase()
+    .replace(/[а-яёғқўҳ]/g, (letter) => cyrillicToLatin[letter] ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 70);
+}
+
+function randomSuffix(previous: string) {
+  const hasPrevious = /^\d{5}$/.test(previous);
+  let number = Math.floor(Math.random() * (hasPrevious ? 89999 : 90000)) + 10000;
+  if (hasPrevious && number >= Number(previous)) number += 1;
+  return String(number);
+}
 
 type Props = {
   token: string;
@@ -24,6 +49,8 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [listError, setListError] = useState("");
   const [login, setLogin] = useState("");
+  const [loginManuallyEdited, setLoginManuallyEdited] = useState(false);
+  const loginSuffix = useRef("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [password, setPassword] = useState("");
@@ -70,6 +97,23 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
     if (refreshRequest > 0) void Promise.resolve().then(loadUsers).finally(onRefreshComplete);
   }, [refreshRequest, loadUsers, onRefreshComplete]);
 
+  function suggestLogin(nextName: string) {
+    const base = loginBase(nextName);
+    if (!base) {
+      setLogin("");
+      return;
+    }
+    const previousSuffix = loginSuffix.current;
+    let nextSuffix = randomSuffix(previousSuffix);
+    let candidate = `${base}.${nextSuffix}`;
+    for (let attempt = 0; attempt < 20 && users.some((user) => user.login.toLowerCase() === candidate); attempt++) {
+      nextSuffix = randomSuffix(previousSuffix);
+      candidate = `${base}.${nextSuffix}`;
+    }
+    loginSuffix.current = nextSuffix;
+    setLogin(candidate);
+  }
+
   async function saveUser() {
     const normalizedLogin = login.trim().toLowerCase();
     setFormError("");
@@ -108,6 +152,8 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
         ...current.filter((item) => item.id !== result.user.id),
       ]);
       setLogin("");
+      setLoginManuallyEdited(false);
+      loginSuffix.current = "";
       setName("");
       setDescription("");
       setPassword("");
@@ -133,6 +179,8 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
   function editUser(item: User) {
     setEditingUser(item.id);
     setLogin(item.login);
+    setLoginManuallyEdited(true);
+    loginSuffix.current = "";
     setName(item.name);
     setDescription(item.description);
     setRole(item.role as StaffRole);
@@ -144,6 +192,8 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
   function cancelEdit() {
     setEditingUser(null);
     setLogin("");
+    setLoginManuallyEdited(false);
+    loginSuffix.current = "";
     setName("");
     setDescription("");
     setPassword("");
@@ -157,24 +207,8 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
           {editingUser ? "Xodimni tahrirlash" : "Yangi xodim"}
         </Text>
         <Text style={styles.subtitle}>
-          Yig'uvchi, sotuvchi yoki mahsulot yaratuvchi uchun hisob yarating.
+          Yig‘uvchi, sotuvchi yoki mahsulot yaratuvchi uchun hisob yarating.
         </Text>
-
-        <Text style={styles.label}>Login</Text>
-        <TextInput
-          style={styles.input}
-          value={login}
-          onChangeText={(value) => {
-            setLogin(value);
-            setFormError("");
-            setSuccess("");
-          }}
-          placeholder="Masalan: ali"
-          placeholderTextColor="#9AA6B5"
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!creating}
-        />
 
         <Text style={styles.label}>Ism</Text>
         <TextInput
@@ -182,9 +216,43 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
           value={name}
           onChangeText={(value) => {
             setName(value);
+            if (!editingUser && !loginManuallyEdited) suggestLogin(value);
             setFormError("");
           }}
           placeholder="Xodim ismi"
+          maxLength={100}
+          editable={!creating}
+        />
+        <View style={styles.loginLabelRow}>
+          <Text style={styles.label}>Login</Text>
+          {!editingUser && !!name.trim() && (
+            <Pressable
+              onPress={() => {
+                suggestLogin(name);
+                setLoginManuallyEdited(false);
+                setFormError("");
+              }}
+              disabled={creating}
+              accessibilityRole="button"
+              accessibilityLabel="Yangi login yaratish"
+            >
+              <Text style={styles.regenerateText}>Qayta yaratish</Text>
+            </Pressable>
+          )}
+        </View>
+        <TextInput
+          style={styles.input}
+          value={login}
+          onChangeText={(value) => {
+            setLogin(value);
+            setLoginManuallyEdited(true);
+            setFormError("");
+            setSuccess("");
+          }}
+          placeholder="Ism kiritilganda yaratiladi"
+          placeholderTextColor="#9AA6B5"
+          autoCapitalize="none"
+          autoCorrect={false}
           maxLength={100}
           editable={!creating}
         />
@@ -313,7 +381,7 @@ export default function StaffManagement({ token, onSessionExpired, onBusyChange,
           </Text>
         )}
         {!loadingUsers && !listError && users.length === 0 && (
-          <Text style={styles.empty}>Hozircha xodimlar yo'q.</Text>
+          <Text style={styles.empty}>Hozircha xodimlar yo‘q.</Text>
         )}
         {!loadingUsers &&
           users.map((item) => (
@@ -352,6 +420,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   label: { color: "#172536", fontSize: 14, fontWeight: "700", marginBottom: 8 },
+  loginLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  regenerateText: { color: "#1677D2", fontSize: 13, fontWeight: "700", marginBottom: 8 },
   input: {
     height: 50,
     borderWidth: 1,

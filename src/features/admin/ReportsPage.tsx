@@ -7,6 +7,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, apiRequestText, type User } from "./api";
 import { formatMoney } from "./customers";
+import DateFilterField from "./DateFilterField";
 import LoadingMark from "./LoadingMark";
 import { deleteStoredToken, getStoredToken } from "./session";
 
@@ -38,7 +39,7 @@ type UnderpaidReport = {
     monthlyAmount: number;
     paidAmount: number;
     shortfall: number;
-    status: "underpaid";
+    status: "underpaid" | "unpaid";
     message: string;
   }[];
   total: number;
@@ -55,7 +56,7 @@ const tabs = [
   { id: "revenue", label: "Tushum", icon: { ios: "banknote.fill", android: "payments", web: "payments" } },
   { id: "sales", label: "Savdo", icon: { ios: "bag.fill", android: "shopping_bag", web: "shopping_bag" } },
   { id: "debt", label: "Qarz", icon: { ios: "creditcard.fill", android: "credit_card", web: "credit_card" } },
-  { id: "monthly-underpaid", label: "Kam to‘langan", icon: { ios: "exclamationmark.circle.fill", android: "error_outline", web: "error_outline" } },
+  { id: "monthly-underpaid", label: "Oylik kamchilik", icon: { ios: "exclamationmark.circle.fill", android: "error_outline", web: "error_outline" } },
 ] as const;
 const underpaidLimit = 20;
 
@@ -65,6 +66,21 @@ function tashkentToday() {
   }).formatToParts(new Date());
   const value = (type: string) => parts.find((part) => part.type === type)?.value || "";
   return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function daysBefore(date: string, count: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() - count);
+  return value.toISOString().slice(0, 10);
+}
+
+function previousMonth(date: string) {
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  return {
+    from: new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 10),
+    to: new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10),
+  };
 }
 
 function validDate(value: string) {
@@ -216,6 +232,13 @@ export default function ReportsPage() {
 
   const underpaidPages = result?.kind === "monthly-underpaid"
     ? Math.max(1, Math.ceil(result.data.total / result.data.limit)) : 1;
+  const todayKey = tashkentToday();
+  const datePresets = [
+    { label: "Bugun", from: todayKey, to: todayKey },
+    { label: "Oxirgi 7 kun", from: daysBefore(todayKey, 6), to: todayKey },
+    { label: "Shu oy", from: `${todayKey.slice(0, 7)}-01`, to: todayKey },
+    { label: "O‘tgan oy", ...previousMonth(todayKey) },
+  ];
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 36 }]} keyboardShouldPersistTaps="handled">
@@ -245,10 +268,17 @@ export default function ReportsPage() {
           <View><Text style={styles.filterTitle}>{tab === "monthly-underpaid" ? "Hisobot oyi" : "Hisobot davri"}</Text><Text style={styles.filterSubtitle}>Toshkent vaqti bo‘yicha</Text></View>
         </View>
         {tab === "monthly-underpaid" ? <LabeledInput label="Oy" value={month} onChangeText={(value) => { setMonth(value); setFilterError(""); }} placeholder="YYYY-MM" maxLength={7} /> : <>
-          <View style={styles.dateRow}>
-            <LabeledInput label="Boshlanish" value={from} onChangeText={(value) => { setFrom(value); setFilterError(""); }} placeholder="YYYY-MM-DD" maxLength={10} />
-            <LabeledInput label="Tugash" value={to} onChangeText={(value) => { setTo(value); setFilterError(""); }} placeholder="YYYY-MM-DD" maxLength={10} />
+          <Text style={styles.inputLabel}>Tez tanlash</Text>
+          <View style={styles.datePresets}>
+            {datePresets.map((preset) => {
+              const selected = from === preset.from && to === preset.to;
+              return <Pressable key={preset.label} onPress={() => { setFrom(preset.from); setTo(preset.to); setFilterError(""); }} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.datePreset, selected && styles.datePresetSelected]}>
+                <Text style={[styles.datePresetText, selected && styles.datePresetTextSelected]}>{preset.label}</Text>
+              </Pressable>;
+            })}
           </View>
+          <DateFilterField label="Boshlanish" value={from} todayKey={todayKey} onChange={(value) => { setFrom(value); if (value && value > to) setTo(value); setFilterError(""); }} />
+          <DateFilterField label="Tugash" value={to} todayKey={todayKey} onChange={(value) => { setTo(value); if (value && value < from) setFrom(value); setFilterError(""); }} />
           <Text style={styles.hint}>Ikkala sana ham hisobga olinadi</Text>
           <Text style={styles.inputLabel}>Guruhlash</Text>
           <View style={styles.groupRow}>
@@ -291,15 +321,15 @@ export default function ReportsPage() {
         <Text style={styles.hint}>Muddati o‘tgan qarz to‘lov jadvalisiz hisoblangan ko‘rsatkich. Penya qo‘shilmagan.</Text>
       </>}
       {!loading && !error && result?.kind === "monthly-underpaid" && <>
-        <Text style={styles.count}>{appliedMonth} · {result.data.total} ta qisman to‘lagan mijoz</Text>
+        <Text style={styles.count}>{appliedMonth} · {result.data.total} ta to‘lamagan yoki kam to‘lagan mijoz</Text>
         {result.data.rows.length === 0 && <Empty />}
         {result.data.rows.map((row) => <Pressable key={row.mijoz_id} style={styles.card} onPress={() => router.push({ pathname: "/customers/detail", params: { mijoz_id: String(row.mijoz_id) } })} accessibilityRole="button">
           <View style={styles.rowHeading}><Text style={styles.rowTitle}>{row.name}</Text><Text style={styles.link}>›</Text></View>
           <Text style={styles.muted}>Mijoz #{row.mijoz_id} · Hudud: {row.regionId}</Text>
-          <Text style={styles.underpaidMessage}>{row.message}</Text>
+          <Text style={styles.underpaidMessage}>{row.status === "unpaid" ? "To‘lov qilinmagan" : "Qisman to‘langan"} · {row.message}</Text>
           <Info label="Oylik summa" value={formatMoney(row.monthlyAmount)} />
           <Info label="To‘langan" value={formatMoney(row.paidAmount)} />
-          <Info label="Kam to‘langan" value={formatMoney(row.shortfall)} emphasized />
+          <Info label="Yetishmayotgan" value={formatMoney(row.shortfall)} emphasized />
         </Pressable>)}
         {underpaidPages > 1 && <View style={styles.pagination}>
           <Pressable disabled={page <= 1} onPress={() => setPage((value) => value - 1)} accessibilityRole="button" style={[styles.pageButton, page <= 1 && styles.disabled]}><Text style={styles.link}>‹ Oldingi</Text></Pressable>
@@ -354,7 +384,11 @@ const styles = StyleSheet.create({
   filterHeadingIcon: { width: 39, height: 39, borderRadius: 12, backgroundColor: "#EEF6FF", alignItems: "center", justifyContent: "center" },
   filterTitle: { color: "#172536", fontSize: 16, fontWeight: "800" },
   filterSubtitle: { color: "#8190A1", fontSize: 12, marginTop: 2 },
-  dateRow: { flexDirection: "row", gap: 10 },
+  datePresets: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 2 },
+  datePreset: { minHeight: 40, borderRadius: 10, borderWidth: 1, borderColor: "#DCE4ED", backgroundColor: "#FAFBFD", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  datePresetSelected: { borderColor: "#A8D0F5", backgroundColor: "#EAF4FF" },
+  datePresetText: { color: "#53647A", fontSize: 13, fontWeight: "700" },
+  datePresetTextSelected: { color: "#1677D2" },
   inputGroup: { flex: 1, marginBottom: 12 },
   inputLabel: { color: "#53647A", fontSize: 12, fontWeight: "700", marginBottom: 7 },
   input: { minHeight: 46, borderWidth: 1, borderColor: "#DCE4ED", borderRadius: 11, paddingHorizontal: 11, backgroundColor: "#FAFBFD", color: "#172536", fontSize: 13 },

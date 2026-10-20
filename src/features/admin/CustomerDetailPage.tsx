@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { randomUUID } from "expo-crypto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -298,12 +298,12 @@ export default function CustomerDetailPage() {
     }
   }, [mijoz_id]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     const timer = setTimeout(() => {
       void load();
     }, 0);
     return () => clearTimeout(timer);
-  }, [load]);
+  }, [load]));
 
   async function addPayment() {
     if (paymentRequestInFlight.current) return;
@@ -587,6 +587,7 @@ export default function CustomerDetailPage() {
               value={formatDate(customer.createdAt)}
             />
             <Row label="Mijoz raqami" value={String(customer.mijoz_id)} />
+            {!!customer.address && <Row label="Manzil" value={customer.address} />}
           </View>
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Savdo va nasiya</Text>
@@ -632,7 +633,14 @@ export default function CustomerDetailPage() {
               label="Yaratgan xodim"
               value={`${detailNames?.users[customer.createdBy] || "Xodim nomi topilmadi"} · ${roleNames[customer.createdByRole]}`}
             />
+            <Row label="Mas’ul xodim" value={customer.assignedTo ? detailNames?.users[customer.assignedTo] || customer.assignedTo : "Biriktirilmagan"} />
           </View>
+          <Pressable style={styles.auditLink} onPress={() => router.push({ pathname: "/customers/edit", params: { mijoz_id } })} accessibilityRole="button">
+            <Text style={styles.auditLinkText}>Mijozni tuzatish ›</Text>
+          </Pressable>
+          <Pressable style={styles.auditLink} onPress={() => router.push({ pathname: "/customers/contacts", params: { mijoz_id } })} accessibilityRole="button">
+            <Text style={styles.auditLinkText}>Aloqa tarixi va yangi qayd ›</Text>
+          </Pressable>
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>
               To‘lovlar ({customer.payments.length})

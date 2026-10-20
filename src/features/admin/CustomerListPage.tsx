@@ -74,12 +74,13 @@ type FieldKey = (typeof filterFields)[number]["key"];
 type NumericKey = (typeof numericFields)[number]["key"];
 type NumericFilterKey = NumericKey | `${NumericKey}Min` | `${NumericKey}Max`;
 type ChoiceKey = "hasDebt" | "paymentMethod" | "paymentType";
-type FilterKey = FieldKey | NumericFilterKey | ChoiceKey | "search";
+type FilterKey = FieldKey | NumericFilterKey | ChoiceKey | "search" | "assignedTo";
 type Filters = Record<FilterKey, string>;
 const emptyFilters = Object.fromEntries([
   ...filterFields.map((field) => [field.key, ""]),
   ...numericFilterFields.map((field) => [field.key, ""]),
   ["search", ""],
+  ["assignedTo", ""],
   ["hasDebt", ""],
   ["paymentMethod", ""],
   ["paymentType", ""],
@@ -177,7 +178,7 @@ function queryString(filters: Filters, page: number, limit: number) {
   return `?${[...entries, `page=${page}`, `limit=${limit}`].join("&")}`;
 }
 
-type NearbyCustomer = Pick<Customer, "mijoz_id" | "name" | "phoneNumber" | "addPhoneNumber" | "lat" | "long"> & { distanceKm: number };
+type NearbyCustomer = Pick<Customer, "mijoz_id" | "name" | "phoneNumber" | "addPhoneNumber" | "address" | "lat" | "long"> & { distanceKm: number };
 type NearbyResponse = { customers: NearbyCustomer[]; total: number };
 
 function formatDistance(distanceKm: number) {
@@ -427,6 +428,7 @@ export default function CustomerListPage() {
       lastChangedKey.current === "paymentMethod" ||
       lastChangedKey.current === "paymentType" ||
       lastChangedKey.current === "createdBy" ||
+      lastChangedKey.current === "assignedTo" ||
       lastChangedKey.current === "createdFrom" ||
       lastChangedKey.current === "createdTo" ||
       lastChangedKey.current === "paidFrom" ||
@@ -556,6 +558,7 @@ export default function CustomerListPage() {
     }
     const keys: FilterKey[] = [
       ...(group.fields ?? []),
+      ...(group.id === "other" ? ["assignedTo" as const] : []),
       ...(group.choices ?? []),
       ...(group.numbers ?? []).flatMap((key): NumericFilterKey[] => [
         key,
@@ -717,12 +720,22 @@ export default function CustomerListPage() {
                         />
                       )}
                       {group.id === "other" && token && (
+                        <>
                         <StaffFilterPicker
                           token={token}
                           value={draft.createdBy}
                           onChange={(value) => update("createdBy", value)}
                           onSessionExpired={handleExpired}
                         />
+                        <StaffFilterPicker
+                          token={token}
+                          value={draft.assignedTo}
+                          onChange={(value) => update("assignedTo", value)}
+                          onSessionExpired={handleExpired}
+                          label="Mas’ul xodim"
+                          allowedRoles={["sotuvchi", "yiguvchi"]}
+                        />
+                        </>
                       )}
                       {group.id !== "catalog" &&
                         group.id !== "dates" &&
@@ -939,6 +952,7 @@ export default function CustomerListPage() {
             </View>
             <Text style={styles.customerMeta}>Mijoz raqami: {item.mijoz_id}</Text>
             <Text style={styles.customerMeta}>{item.phoneNumber}</Text>
+            {!!item.address && <Text style={styles.customerMeta}>{item.address}</Text>}
             {!!item.addPhoneNumber && <Text style={styles.customerMeta}>Qo'shimcha telefon: {item.addPhoneNumber}</Text>}
           </> : <>
           <View style={styles.customerTop}>
@@ -956,6 +970,7 @@ export default function CustomerListPage() {
           <Text style={styles.customerMeta}>
             {item.phoneNumber} · {item.productName}
           </Text>
+          {!!item.address && <Text style={styles.customerMeta}>{item.address}</Text>}
           <Text style={styles.customerAmount}>
             Qolgan qarz: {formatMoney(item.remainingBalance)}
           </Text>

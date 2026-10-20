@@ -23,6 +23,8 @@ export type Customer = {
   name: string;
   phoneNumber: string;
   addPhoneNumber: string | null;
+  address: string | null;
+  assignedTo: string | null;
   productName: string;
   groupId: string | null;
   sectionId: string | null;

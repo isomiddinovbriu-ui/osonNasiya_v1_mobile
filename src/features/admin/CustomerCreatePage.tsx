@@ -66,6 +66,7 @@ type Draft = {
   name: string;
   phoneNumber: string;
   addPhoneNumber: string;
+  address: string;
   product: Product | null;
   groupId: string | null;
   sectionId: string | null;
@@ -154,6 +155,7 @@ export default function CustomerCreatePage() {
   const [name, setName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [addPhoneNumber, setAddPhoneNumber] = useState("");
+  const [address, setAddress] = useState("");
   const [lat, setLat] = useState("");
   const [long, setLong] = useState("");
   const [locationError, setLocationError] = useState("");
@@ -332,6 +334,7 @@ export default function CustomerCreatePage() {
           setName(draft.name ?? "");
           setPhoneNumber(phoneDigits(draft.phoneNumber ?? ""));
           setAddPhoneNumber(phoneDigits(draft.addPhoneNumber ?? ""));
+          setAddress(draft.address ?? "");
           setSelectedProduct(draft.product ?? null);
           setProductId(draft.product?.id ?? null);
           setProductListOpen(!draft.product);
@@ -375,6 +378,7 @@ export default function CustomerCreatePage() {
       name,
       phoneNumber,
       addPhoneNumber,
+      address,
       product: selectedProduct,
       groupId,
       sectionId,
@@ -402,6 +406,7 @@ export default function CustomerCreatePage() {
     name,
     phoneNumber,
     addPhoneNumber,
+    address,
     selectedProduct,
     groupId,
     sectionId,
@@ -697,6 +702,11 @@ export default function CustomerCreatePage() {
       showFieldError("Telefon raqamlarini to'liq kiriting (9 ta raqam).", !validPhone(mainPhone) ? "phone" : "extraPhone", 0);
       return;
     }
+    if (address.trim().length > 500) {
+      setFormError("Manzil 500 belgidan oshmasligi kerak.");
+      setStep(0);
+      return;
+    }
     if (!groupId || !sectionId || !productId || !selectedProduct) {
       showFieldError("Mahsulotni tanlang.", "product", 1);
       return;
@@ -761,6 +771,7 @@ export default function CustomerCreatePage() {
             name: normalizedName,
             phoneNumber: `+998${mainPhone}`,
             ...(extraPhone ? { addPhoneNumber: `+998${extraPhone}` } : {}),
+            ...(address.trim() ? { address: address.trim() } : {}),
             groupId,
             sectionId,
             productId,
@@ -996,6 +1007,13 @@ export default function CustomerCreatePage() {
                           inputRef={extraPhoneRef}
                           value={addPhoneNumber}
                           onChangeText={setAddPhoneNumber}
+                        />
+                        <Field
+                          label="Manzil (ixtiyoriy)"
+                          value={address}
+                          onChangeText={setAddress}
+                          placeholder="Mijoz manzili"
+                          maxLength={500}
                         />
                       </View>
                     )}

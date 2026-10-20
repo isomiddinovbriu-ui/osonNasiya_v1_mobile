@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurTargetView, BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { router, type Href } from "expo-router";
@@ -20,10 +19,10 @@ import { ApiError, apiRequest, type AuthResult, type User, type UserRole } from 
 import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
 import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
+import { canSwitchRememberedLogin, getRememberedLogin, rememberLogin, setCanSwitchRememberedLogin } from "./rememberedLogin";
 import { deleteStoredToken, getStoredToken, logoutStoredSession, setStoredSession } from "./session";
 
 type SymbolName = ComponentProps<typeof SymbolView>["name"];
-const LAST_LOGIN_KEY = "osonnasiya_last_login";
 
 const roleAppearance: Record<UserRole, { label: string; icon: SymbolName; color: string; background: string }> = {
   super_admin: {
@@ -68,6 +67,7 @@ function VisibilityIcon({ visible }: { visible: boolean }) {
 export default function App() {
   const [login, setLogin] = useState("");
   const [editingLogin, setEditingLogin] = useState(true);
+  const [showLoginSwitch, setShowLoginSwitch] = useState(false);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [useSystemKeyboard, setUseSystemKeyboard] = useState(false);
@@ -79,14 +79,31 @@ export default function App() {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const blurTargetRef = useRef<View | null>(null);
 
+  async function restoreRememberedLogin() {
+    try {
+      const savedLogin = await getRememberedLogin();
+      setLogin(savedLogin ?? "");
+      setEditingLogin(!savedLogin);
+      const canSwitch = savedLogin
+        ? await canSwitchRememberedLogin().catch(() => false)
+        : false;
+      setShowLoginSwitch(canSwitch);
+    } catch {
+      setLogin("");
+      setEditingLogin(true);
+      setShowLoginSwitch(false);
+    }
+  }
+
   useEffect(() => {
     let active = true;
     async function restoreSession() {
       try {
-        const savedLogin = await AsyncStorage.getItem(LAST_LOGIN_KEY);
+        const savedLogin = await getRememberedLogin();
         if (active && savedLogin) {
           setLogin(savedLogin);
           setEditingLogin(false);
+          setShowLoginSwitch(await canSwitchRememberedLogin());
         }
       } catch {
         // A storage failure should still allow manual sign in.
@@ -101,8 +118,10 @@ export default function App() {
             setUser(result.user);
             setLogin(result.user.login);
             setEditingLogin(false);
+            setShowLoginSwitch(false);
           }
-          void AsyncStorage.setItem(LAST_LOGIN_KEY, result.user.login).catch(() => {});
+          void rememberLogin(result.user.login).catch(() => {});
+          void setCanSwitchRememberedLogin(false).catch(() => {});
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -143,8 +162,10 @@ export default function App() {
       });
       await setStoredSession(result);
       setLogin(result.user.login);
-      setEditingLogin(false);
-      void AsyncStorage.setItem(LAST_LOGIN_KEY, result.user.login).catch(() => {});
+      const saved = await rememberLogin(result.user.login).then(() => true, () => false);
+      setEditingLogin(!saved);
+      setShowLoginSwitch(false);
+      await setCanSwitchRememberedLogin(false).catch(() => {});
       setPassword("");
       setUser(result.user);
     } catch (err) {
@@ -178,6 +199,10 @@ export default function App() {
       setConfirmSignOut(false);
       setUser(null);
       setPassword("");
+      setLogin(user?.login ?? login);
+      setEditingLogin(false);
+      setShowLoginSwitch(true);
+      await setCanSwitchRememberedLogin(true).catch(() => {});
     }
   }
 
@@ -187,7 +212,7 @@ export default function App() {
     setError("");
     try {
       const token = await getStoredToken();
-      if (!token) { setUser(null); return; }
+      if (!token) { setUser(null); await restoreRememberedLogin(); return; }
       const result = await apiRequest<{ user: User }>("/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -196,6 +221,7 @@ export default function App() {
       if (cause instanceof ApiError && cause.status === 401) {
         await deleteStoredToken();
         setUser(null);
+        await restoreRememberedLogin();
         setError("Sessiya tugadi. Qayta kiring.");
       } else {
         setError(cause instanceof Error ? cause.message : "Yangilab bo‘lmadi.");
@@ -226,7 +252,13 @@ export default function App() {
       ...(user.role === "sotuvchi"
         ? [{ title: "Yangi mijoz", href: "/customers/new" as Href, icon: { ios: "person.badge.plus", android: "person_add", web: "person_add" } as const }]
         : []),
+      ...(user.role === "super_admin" || user.role === "yiguvchi"
+        ? [{ title: "Ish ro‘yxati", href: "/collections" as Href, icon: { ios: "list.bullet.clipboard", android: "assignment", web: "assignment" } as const }]
+        : []),
       { title: "Mijozlar", href: "/customers" as Href, icon: { ios: "person.2", android: "group", web: "group" } },
+      ...(user.role !== "product_creator"
+        ? [{ title: "Aloqalar", href: "/contacts" as Href, icon: { ios: "phone.arrow.up.right", android: "call", web: "call" } as const }]
+        : []),
     ];
     const appearance = roleAppearance[user.role];
     return (
@@ -242,7 +274,15 @@ export default function App() {
             <PullRefreshFeedback active={refreshing} />
             {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
             <View style={styles.homeHeader}>
-              <Text style={styles.brand}>OsonNasiya</Text>
+              <View style={styles.brandRow}>
+                <Image
+                  source={require("../../../assets/images/brand-mark.png")}
+                  style={styles.brandLogo}
+                  contentFit="contain"
+                  accessibilityLabel="OsonNasiya logosi"
+                />
+                <Text style={styles.brand}>OsonNasiya</Text>
+              </View>
               <Pressable
                 style={({ pressed }) => [
                   styles.signOutIconButton,
@@ -376,20 +416,22 @@ export default function App() {
                     <Text style={styles.label}>Akkaunt</Text>
                     <Text style={styles.savedLoginName} numberOfLines={1}>{login}</Text>
                   </View>
-                  <Pressable
-                    onPress={() => {
-                      setLogin("");
-                      setPassword("");
-                      setEditingLogin(true);
-                      setError("");
-                    }}
-                    disabled={loading}
-                    accessibilityRole="button"
-                    accessibilityLabel="Boshqa login bilan kirish"
-                    style={styles.changeLoginButton}
-                  >
-                    <Text style={styles.changeLoginText}>Almashtirish</Text>
-                  </Pressable>
+                  {showLoginSwitch && (
+                    <Pressable
+                      onPress={() => {
+                        setLogin("");
+                        setPassword("");
+                        setEditingLogin(true);
+                        setError("");
+                      }}
+                      disabled={loading}
+                      accessibilityRole="button"
+                      accessibilityLabel="Boshqa login bilan kirish"
+                      style={styles.changeLoginButton}
+                    >
+                      <Text style={styles.changeLoginText}>Almashtirish</Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
             </View>
@@ -843,6 +885,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 40,
   },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 34, height: 34 },
   signOutIconButton: {
     width: 46,
     height: 46,
