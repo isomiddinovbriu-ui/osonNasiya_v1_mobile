@@ -47,8 +47,7 @@ export default function CatalogHome() {
       <Text style={styles.backText}>‹  Orqaga</Text>
     </Pressable>
     <Text style={styles.eyebrow}>KATALOG</Text>
-    <Text style={styles.title}>Mahsulotlar uchun</Text>
-    <Text style={styles.subtitle}>Qaysi yozuvlarni boshqarishni tanlang.</Text>
+    <Text style={styles.title}>Katalog</Text>
     {checking ? <View style={styles.center}><LoadingMark size={72} /></View> : error ?
       <Text style={styles.error} accessibilityRole="alert">{error}</Text> : allowed ? <CatalogMenu /> : null}
   </ScrollView>;
@@ -60,8 +59,7 @@ const styles = StyleSheet.create({
   back: { alignSelf: "flex-start", paddingVertical: 10, paddingRight: 20, marginBottom: 18 },
   backText: { color: "#1677D2", fontSize: 16, fontWeight: "700" },
   eyebrow: { color: "#1677D2", fontSize: 12, fontWeight: "800", letterSpacing: 1.5, marginBottom: 8 },
-  title: { color: "#172536", fontSize: 30, fontWeight: "800" },
-  subtitle: { color: "#627184", fontSize: 15, lineHeight: 22, marginTop: 8, marginBottom: 24 },
+  title: { color: "#172536", fontSize: 30, fontWeight: "800", marginBottom: 24 },
   center: { alignItems: "center", paddingVertical: 48 },
   error: { color: "#C3333D", fontSize: 14 },
 });

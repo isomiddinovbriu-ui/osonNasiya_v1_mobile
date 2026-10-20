@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { randomUUID } from "expo-crypto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
@@ -45,6 +46,7 @@ type DetailNames = {
   product: string;
   users: Record<string, string>;
 };
+type PaymentAttempt = { customerId: string; key: string; body: string };
 const unavailable = "Ma’lumot topilmadi";
 const roleNames = {
   super_admin: "Super admin",
@@ -175,10 +177,14 @@ export default function CustomerDetailPage() {
   const paymentOptions = usePaymentOptions(paymentToken);
   const [forMonth, setForMonth] = useState(currentPaymentMonth);
   const [paymentError, setPaymentError] = useState("");
+  const [paymentNotice, setPaymentNotice] = useState("");
+  const [retryPayment, setRetryPayment] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [paymentStep, setPaymentStep] = useState<0 | 1 | 2 | 3>(0);
   const [furthestPaymentStep, setFurthestPaymentStep] = useState<1 | 2 | 3>(1);
   const scrollRef = useRef<ScrollView>(null);
+  const paymentAttempt = useRef<PaymentAttempt | null>(null);
+  const paymentRequestInFlight = useRef(false);
   const monthlyPayment =
     customer && customer.termMonths > 0 && customer.totalPrice > customer.downPayment
       ? Math.ceil((customer.totalPrice - customer.downPayment) / customer.termMonths)
@@ -202,15 +208,17 @@ export default function CustomerDetailPage() {
   }, [paymentStep]);
 
   function goToPaymentStep(target: 1 | 2 | 3) {
-    if (savingPayment || target > furthestPaymentStep || target === paymentStep) return;
+    if (savingPayment || retryPayment || target > furthestPaymentStep || target === paymentStep) return;
     Keyboard.dismiss();
     setPaymentError("");
     setPaymentStep(target);
   }
 
   function nextPaymentStep() {
+    if (paymentRequestInFlight.current) return;
     setPaymentError("");
     if (paymentStep === 0) {
+      setPaymentNotice("");
       setFurthestPaymentStep(1);
       setPaymentStep(1);
       return;
@@ -274,6 +282,7 @@ export default function CustomerDetailPage() {
       const names = await resolveDetailNames(result.customer, token);
       setDetailNames(names);
       setCustomer(result.customer);
+      setPaymentNotice("");
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
         await deleteStoredToken();
@@ -297,34 +306,38 @@ export default function CustomerDetailPage() {
   }, [load]);
 
   async function addPayment() {
-    const paymentAmount = parseMoney(amount);
+    if (paymentRequestInFlight.current) return;
     if (!customer || !mijoz_id || !/^[1-9]\d*$/.test(mijoz_id)) return;
-    if (
-      paymentAmount === null ||
-      paymentAmount <= 0 ||
-      paymentAmount > customer.remainingBalance
-    ) {
-      setPaymentError(
-        "To'lov summasi 0 dan katta va qolgan qarzdan oshmasligi kerak.",
+    const pending = paymentAttempt.current?.customerId === mijoz_id
+      ? paymentAttempt.current
+      : null;
+    let body = pending?.body;
+    if (!pending) {
+      const paymentAmount = parseMoney(amount);
+      if (paymentAmount === null || paymentAmount <= 0 || paymentAmount > customer.remainingBalance) {
+        setPaymentError("To‘lov summasi 0 dan katta va qolgan qarzdan oshmasligi kerak.");
+        return;
+      }
+      const detailsError = paymentDetailsError(
+        method, cardNumber, provider, providerName, paymentOptions.options,
       );
-      return;
+      if (detailsError) {
+        setPaymentError(detailsError);
+        return;
+      }
+      const selectedMonth = forMonth.trim();
+      if (selectedMonth && !validPaymentMonth(selectedMonth)) {
+        setPaymentError("To‘lov oyini YYYY-MM shaklida kiriting.");
+        return;
+      }
+      body = JSON.stringify({
+        amount: paymentAmount,
+        method,
+        ...(selectedMonth ? { forMonth: selectedMonth } : {}),
+        ...paymentExtraFields(method!, cardNumber, provider, providerName),
+      });
     }
-    const detailsError = paymentDetailsError(
-      method,
-      cardNumber,
-      provider,
-      providerName,
-      paymentOptions.options,
-    );
-    if (detailsError) {
-      setPaymentError(detailsError);
-      return;
-    }
-    const selectedMonth = forMonth.trim();
-    if (selectedMonth && !validPaymentMonth(selectedMonth)) {
-      setPaymentError("To'lov oyini YYYY-MM shaklida kiriting.");
-      return;
-    }
+    paymentRequestInFlight.current = true;
     setSavingPayment(true);
     setPaymentError("");
     try {
@@ -333,40 +346,64 @@ export default function CustomerDetailPage() {
         router.replace("/");
         return;
       }
+      const attempt = pending ?? {
+        customerId: mijoz_id,
+        key: randomUUID(),
+        body: body!,
+      };
+      paymentAttempt.current = attempt;
       const result = await apiRequest<{
         paymentId: string;
         payment: CustomerPayment;
         customer: Customer;
       }>(`/customers/${mijoz_id}/payments`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          amount: paymentAmount,
-          method,
-          ...(selectedMonth ? { forMonth: selectedMonth } : {}),
-          ...paymentExtraFields(method!, cardNumber, provider, providerName),
-        }),
+        headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": attempt.key },
+        body: attempt.body,
       });
+      paymentAttempt.current = null;
+      setRetryPayment(false);
       setAmount("");
       setMethod(null);
       setCardNumber("");
       setProvider("");
       setProviderName("");
       setForMonth(currentPaymentMonth());
-      setCustomer(result.customer);
       setPaymentStep(0);
       setFurthestPaymentStep(1);
+      setCustomer(result.customer);
+      setPaymentNotice("");
+      try {
+        const latest = await apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setCustomer(latest.customer);
+      } catch {
+        setPaymentNotice("To‘lov saqlandi. Eng so‘nggi balansni ko‘rish uchun ma’lumotlarni yangilang.");
+      }
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
         await deleteStoredToken();
         router.replace("/");
       } else {
-        setPaymentError(
-          cause instanceof Error ? cause.message : "To'lov saqlanmadi.",
-        );
-        if (cause instanceof ApiError && cause.status === 409) void load();
+        const uncertain = !(cause instanceof ApiError) || cause.status >= 500;
+        setRetryPayment(uncertain);
+        if (!uncertain) paymentAttempt.current = null;
+        setPaymentError(uncertain
+          ? "To‘lov natijasi noma’lum. Xuddi shu to‘lovni xavfsiz qayta yuboring."
+          : cause instanceof Error ? cause.message : "To‘lov saqlanmadi.");
+        if (cause instanceof ApiError && cause.status === 409) {
+          const token = await getStoredToken();
+          if (token) {
+            const latest = await apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            }).catch(() => null);
+            if (latest) setCustomer(latest.customer);
+          }
+        }
       }
     } finally {
+      paymentRequestInFlight.current = false;
       setSavingPayment(false);
     }
   }
@@ -448,7 +485,7 @@ export default function CustomerDetailPage() {
     >
       <Pressable
         onPress={() => {
-          if (savingPayment) return;
+          if (savingPayment || retryPayment) return;
           setPaymentError("");
           if (paymentStep > 1) goToPaymentStep((paymentStep - 1) as 1 | 2);
           else if (paymentStep === 1) {
@@ -459,8 +496,9 @@ export default function CustomerDetailPage() {
         }}
         style={styles.back}
         accessibilityRole="button"
+        disabled={savingPayment || retryPayment}
       >
-        <Text style={styles.link}>{paymentStep > 0 ? "‹ Orqaga" : "‹ Mijozlarga qaytish"}</Text>
+        <Text style={[styles.link, retryPayment && styles.disabled]}>{paymentStep > 0 ? "‹ Orqaga" : "‹ Mijozlarga qaytish"}</Text>
       </Pressable>
       <Text style={styles.title}>{paymentStep > 0 ? "Keyingi to‘lov" : "Mijoz ma’lumotlari"}</Text>
       {customer && !loading && paymentStep > 0 && (
@@ -474,10 +512,10 @@ export default function CustomerDetailPage() {
                 <Pressable
                   key={title}
                   onPress={() => goToPaymentStep(step)}
-                  disabled={!visited || step === paymentStep || savingPayment}
+                  disabled={!visited || step === paymentStep || savingPayment || retryPayment}
                   accessibilityRole="button"
                   accessibilityLabel={`${step}-qadam: ${title}`}
-                  accessibilityState={{ selected: step === paymentStep, disabled: !visited || step === paymentStep || savingPayment }}
+                  accessibilityState={{ selected: step === paymentStep, disabled: !visited || step === paymentStep || savingPayment || retryPayment }}
                   style={[
                     styles.progressSegment,
                     step < paymentStep && styles.progressSegmentCompleted,
@@ -517,6 +555,11 @@ export default function CustomerDetailPage() {
           <Pressable onPress={() => void load()} accessibilityRole="button">
             <Text style={styles.link}>Qayta yuklash</Text>
           </Pressable>
+        </View>
+      )}
+      {!!paymentNotice && paymentStep === 0 && (
+        <View style={styles.card}>
+          <Text style={styles.muted}>{paymentNotice}</Text>
         </View>
       )}
       {customer && !loading && (
@@ -867,7 +910,7 @@ export default function CustomerDetailPage() {
           accessibilityRole="button"
         >
           <Text style={styles.submitText}>
-            {savingPayment ? "Saqlanmoqda..." : paymentStep === 0 ? "To‘lov qilish" : paymentStep === 3 ? "To‘lovni saqlash" : "Davom etish"}
+            {savingPayment ? "Saqlanmoqda..." : retryPayment ? "Qayta yuborish" : paymentStep === 0 ? "To‘lov qilish" : paymentStep === 3 ? "To‘lovni saqlash" : "Davom etish"}
           </Text>
         </Pressable>
       </View>

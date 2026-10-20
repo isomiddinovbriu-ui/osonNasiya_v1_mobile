@@ -22,6 +22,7 @@ export const API_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
+  responseFormat: "json" | "text" = "json",
 ): Promise<T> {
   if (!API_URL) {
     throw new Error("API manzili sozlanmagan. .env faylini tekshiring.");
@@ -66,9 +67,17 @@ export async function apiRequest<T>(
         response = await send();
       }
     }
-    const data = response.status === 204 ? null : await response.json();
+    const data = response.status === 204
+      ? null
+      : responseFormat === "text"
+        ? await response.text()
+        : await response.json();
     if (!response.ok) {
-      throw new ApiError(data?.message || "So'rov bajarilmadi.", response.status);
+      let message = typeof data === "object" ? data?.message : undefined;
+      if (typeof data === "string") {
+        try { message = JSON.parse(data).message; } catch { message = data; }
+      }
+      throw new ApiError(message || "So'rov bajarilmadi.", response.status);
     }
     return data as T;
   } catch (error) {
@@ -80,4 +89,8 @@ export async function apiRequest<T>(
     }
     throw error;
   }
+}
+
+export function apiRequestText(path: string, options: RequestInit = {}) {
+  return apiRequest<string>(path, options, "text");
 }

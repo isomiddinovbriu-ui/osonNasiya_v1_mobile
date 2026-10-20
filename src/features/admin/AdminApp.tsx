@@ -1,9 +1,10 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BlurTargetView, BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { router, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -15,11 +16,43 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { ApiError, apiRequest, type AuthResult, type User } from "./api";
+import { ApiError, apiRequest, type AuthResult, type User, type UserRole } from "./api";
 import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
 import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken, logoutStoredSession, setStoredSession } from "./session";
+
+type SymbolName = ComponentProps<typeof SymbolView>["name"];
+const LAST_LOGIN_KEY = "osonnasiya_last_login";
+
+const roleAppearance: Record<UserRole, { label: string; icon: SymbolName; color: string; background: string }> = {
+  super_admin: {
+    label: "Super admin",
+    icon: { ios: "person.crop.circle.badge.checkmark", android: "admin_panel_settings", web: "admin_panel_settings" },
+    color: "#1769B6",
+    background: "#E7F2FF",
+  },
+  product_creator: {
+    label: "Mahsulotlar menejeri",
+    icon: { ios: "shippingbox.fill", android: "inventory_2", web: "inventory_2" },
+    color: "#7654B5",
+    background: "#F0EAFC",
+  },
+  sotuvchi: {
+    label: "Sotuvchi",
+    icon: { ios: "bag.fill", android: "storefront", web: "storefront" },
+    color: "#BA6B1F",
+    background: "#FFF0DE",
+  },
+  yiguvchi: {
+    label: "Yig‘uvchi",
+    icon: { ios: "creditcard.fill", android: "payments", web: "payments" },
+    color: "#188064",
+    background: "#E3F5EE",
+  },
+};
+
+type HomeAction = { title: string; href: Href; icon: SymbolName };
 
 function VisibilityIcon({ visible }: { visible: boolean }) {
   return (
@@ -34,6 +67,7 @@ function VisibilityIcon({ visible }: { visible: boolean }) {
 
 export default function App() {
   const [login, setLogin] = useState("");
+  const [editingLogin, setEditingLogin] = useState(true);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [useSystemKeyboard, setUseSystemKeyboard] = useState(false);
@@ -49,6 +83,15 @@ export default function App() {
     let active = true;
     async function restoreSession() {
       try {
+        const savedLogin = await AsyncStorage.getItem(LAST_LOGIN_KEY);
+        if (active && savedLogin) {
+          setLogin(savedLogin);
+          setEditingLogin(false);
+        }
+      } catch {
+        // A storage failure should still allow manual sign in.
+      }
+      try {
         const token = await getStoredToken();
         if (token) {
           const result = await apiRequest<{ user: User }>("/auth/me", {
@@ -56,7 +99,10 @@ export default function App() {
           });
           if (active) {
             setUser(result.user);
+            setLogin(result.user.login);
+            setEditingLogin(false);
           }
+          void AsyncStorage.setItem(LAST_LOGIN_KEY, result.user.login).catch(() => {});
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -96,6 +142,9 @@ export default function App() {
         body: JSON.stringify({ login: normalizedLogin, password, clientType: Platform.OS === "web" ? "web" : "mobile" }),
       });
       await setStoredSession(result);
+      setLogin(result.user.login);
+      setEditingLogin(false);
+      void AsyncStorage.setItem(LAST_LOGIN_KEY, result.user.login).catch(() => {});
       setPassword("");
       setUser(result.user);
     } catch (err) {
@@ -166,24 +215,20 @@ export default function App() {
     );
 
   if (user) {
-    const homeActions: { title: string; href: Href }[] = [
+    const homeActions: HomeAction[] = [
       ...(user.role === "super_admin"
         ? [
-            { title: "Mahsulotlar", href: "/catalog/home" as Href },
-            { title: "Xodimlar", href: "/staff" as Href },
+            { title: "Mahsulotlar", href: "/catalog/home" as Href, icon: { ios: "shippingbox", android: "inventory_2", web: "inventory_2" } as const },
+            { title: "Xodimlar", href: "/staff" as Href, icon: { ios: "person.2", android: "groups", web: "groups" } as const },
+            { title: "Hisobotlar", href: "/reports" as Href, icon: { ios: "chart.bar.fill", android: "bar_chart", web: "bar_chart" } as const },
           ]
         : []),
       ...(user.role === "sotuvchi"
-        ? [{ title: "Yangi mijoz", href: "/customers/new" as Href }]
+        ? [{ title: "Yangi mijoz", href: "/customers/new" as Href, icon: { ios: "person.badge.plus", android: "person_add", web: "person_add" } as const }]
         : []),
-      { title: "Mijozlar", href: "/customers" as Href },
+      { title: "Mijozlar", href: "/customers" as Href, icon: { ios: "person.2", android: "group", web: "group" } },
     ];
-    const roleLabel = {
-      super_admin: "Super admin",
-      product_creator: "Mahsulotlar menejeri",
-      sotuvchi: "Sotuvchi",
-      yiguvchi: "Yig‘uvchi",
-    }[user.role];
+    const appearance = roleAppearance[user.role];
     return (
       <View style={styles.root}>
         <StatusBar style="dark" />
@@ -215,8 +260,13 @@ export default function App() {
               </Pressable>
             </View>
             <View style={styles.homeIntro}>
-              <Text style={styles.homeGreeting}>Salom, {user.name || user.login}</Text>
-              <Text style={styles.homeRole}>{roleLabel}</Text>
+              <View style={[styles.roleIcon, { backgroundColor: appearance.background }]}>
+                <SymbolView name={appearance.icon} tintColor={appearance.color} size={27} />
+              </View>
+              <View style={styles.homeIntroText}>
+                <Text style={styles.homeGreeting}>Salom, {user.name || user.login}</Text>
+                <Text style={styles.homeRole}>{appearance.label}</Text>
+              </View>
             </View>
             {user.role === "product_creator" && <CatalogMenu />}
             <Text style={styles.homeSectionTitle}>Bo‘limlar</Text>
@@ -232,6 +282,9 @@ export default function App() {
                   onPress={() => router.push(action.href)}
                   accessibilityRole="button"
                 >
+                  <View style={styles.homeMenuIcon}>
+                    <SymbolView name={action.icon} tintColor="#1677D2" size={20} />
+                  </View>
                   <Text style={styles.homeMenuTitle}>{action.title}</Text>
                   <Text style={styles.homeMenuArrow}>›</Text>
                 </Pressable>
@@ -297,23 +350,48 @@ export default function App() {
             <PullRefreshFeedback active={refreshing} />
             <Text style={styles.screenTitle}>Avtorizatsiya</Text>
             <View style={styles.loginField}>
-              <Text style={styles.label}>Login</Text>
-              <TextInput
-                style={styles.input}
-                value={login}
-                onChangeText={(value) => {
-                  setLogin(value);
-                  setError("");
-                }}
-                placeholder="Loginni kiriting"
-                placeholderTextColor="#9AA6B5"
-                autoCapitalize="none"
-                autoCorrect={false}
-                textContentType="username"
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-                editable={!loading}
-              />
+              {editingLogin ? (
+                <>
+                  <Text style={styles.label}>Login</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={login}
+                    onChangeText={(value) => {
+                      setLogin(value);
+                      setError("");
+                    }}
+                    placeholder="Loginni kiriting"
+                    placeholderTextColor="#9AA6B5"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="username"
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    editable={!loading}
+                  />
+                </>
+              ) : (
+                <View style={styles.savedLoginRow}>
+                  <View style={styles.savedLoginText}>
+                    <Text style={styles.label}>Akkaunt</Text>
+                    <Text style={styles.savedLoginName} numberOfLines={1}>{login}</Text>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      setLogin("");
+                      setPassword("");
+                      setEditingLogin(true);
+                      setError("");
+                    }}
+                    disabled={loading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Boshqa login bilan kirish"
+                    style={styles.changeLoginButton}
+                  >
+                    <Text style={styles.changeLoginText}>Almashtirish</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
             <View style={styles.pinSection}>
               <View style={styles.pinTitleRow}>
@@ -535,6 +613,17 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 48,
   },
+  savedLoginRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  savedLoginText: { flex: 1 },
+  savedLoginName: { color: "#172536", fontSize: 17, fontWeight: "700" },
+  changeLoginButton: { minHeight: 44, justifyContent: "center" },
+  changeLoginText: { color: "#1677D2", fontSize: 14, fontWeight: "700" },
   pinSection: { alignItems: "center", marginTop: 60 },
   pinTitleRow: {
     flexDirection: "row",
@@ -817,14 +906,17 @@ const styles = StyleSheet.create({
   cancelAction: { backgroundColor: "#1677D2" },
   confirmAction: { backgroundColor: "#D33B45" },
   signOutActionText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
-  homeIntro: { marginBottom: 35 },
-  homeGreeting: { color: "#172536", fontSize: 27, fontWeight: "800" },
+  homeIntro: { marginBottom: 35, flexDirection: "row", alignItems: "center", gap: 14 },
+  roleIcon: { width: 54, height: 54, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  homeIntroText: { flex: 1 },
+  homeGreeting: { color: "#172536", fontSize: 25, fontWeight: "800" },
   homeRole: { color: "#627184", fontSize: 14, marginTop: 6 },
   homeSectionTitle: { color: "#627184", fontSize: 13, fontWeight: "700", marginBottom: 12 },
   homeMenu: { backgroundColor: "#FFFFFF", borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: "#E8EDF3" },
-  homeMenuItem: { minHeight: 65, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
+  homeMenuItem: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 15 },
+  homeMenuIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#EEF6FF", alignItems: "center", justifyContent: "center" },
   homeMenuDivider: { borderBottomWidth: 1, borderBottomColor: "#EEF1F5" },
   homeMenuItemPressed: { backgroundColor: "#F1F7FF" },
-  homeMenuTitle: { color: "#172536", fontSize: 16, fontWeight: "700" },
+  homeMenuTitle: { flex: 1, color: "#172536", fontSize: 16, fontWeight: "700" },
   homeMenuArrow: { color: "#1677D2", fontSize: 27, lineHeight: 30 },
 });
