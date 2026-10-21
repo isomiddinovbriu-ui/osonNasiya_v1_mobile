@@ -66,6 +66,7 @@ function VisibilityIcon({ visible }: { visible: boolean }) {
 
 export default function App() {
   const [login, setLogin] = useState("");
+  const [loginFocused, setLoginFocused] = useState(false);
   const [editingLogin, setEditingLogin] = useState(true);
   const [showLoginSwitch, setShowLoginSwitch] = useState(false);
   const [password, setPassword] = useState("");
@@ -393,28 +394,43 @@ export default function App() {
               {editingLogin ? (
                 <>
                   <Text style={styles.label}>Login</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={login}
-                    onChangeText={(value) => {
-                      setLogin(value);
-                      setError("");
-                    }}
-                    placeholder="Loginni kiriting"
-                    placeholderTextColor="#9AA6B5"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType="username"
-                    returnKeyType="done"
-                    onSubmitEditing={Keyboard.dismiss}
-                    editable={!loading}
-                  />
+                  <View style={[styles.loginInputCard, loginFocused && styles.loginInputCardFocused]}>
+                    <View style={styles.loginInputIcon}>
+                      <SymbolView name={{ ios: "person.fill", android: "person", web: "person" }} size={20} tintColor="#1677D2" />
+                    </View>
+                    <TextInput
+                      style={styles.loginInput}
+                      value={login}
+                      onChangeText={(value) => {
+                        setLogin(value);
+                        setError("");
+                      }}
+                      onFocus={() => setLoginFocused(true)}
+                      onBlur={() => setLoginFocused(false)}
+                      placeholder="Loginni kiriting"
+                      placeholderTextColor="#9AA6B5"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="username"
+                      textContentType="username"
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                      editable={!loading}
+                      accessibilityLabel="Login"
+                      underlineColorAndroid="transparent"
+                    />
+                  </View>
                 </>
               ) : (
-                <View style={styles.savedLoginRow}>
-                  <View style={styles.savedLoginText}>
-                    <Text style={styles.label}>Akkaunt</Text>
-                    <Text style={styles.savedLoginName} numberOfLines={1}>{login}</Text>
+                <View style={styles.savedLoginCard}>
+                  <View style={styles.savedLoginRow}>
+                    <View style={styles.savedLoginIcon}>
+                      <SymbolView name={{ ios: "person.crop.circle.fill", android: "account_circle", web: "account_circle" }} size={28} tintColor="#1677D2" />
+                    </View>
+                    <View style={styles.savedLoginText}>
+                      <Text style={styles.savedLoginLabel}>Saqlangan akkaunt</Text>
+                      <Text style={styles.savedLoginName} numberOfLines={1}>{login}</Text>
+                    </View>
                   </View>
                   {showLoginSwitch && (
                     <Pressable
@@ -427,15 +443,16 @@ export default function App() {
                       disabled={loading}
                       accessibilityRole="button"
                       accessibilityLabel="Boshqa login bilan kirish"
-                      style={styles.changeLoginButton}
+                      style={({ pressed }) => [styles.changeLoginButton, pressed && styles.changeLoginButtonPressed, loading && styles.changeLoginButtonDisabled]}
                     >
-                      <Text style={styles.changeLoginText}>Almashtirish</Text>
+                      <Text style={styles.changeLoginText}>Boshqa akkauntga kirish</Text>
+                      <SymbolView name={{ ios: "chevron.right", android: "chevron_right", web: "chevron_right" }} size={18} tintColor="#1677D2" />
                     </Pressable>
                   )}
                 </View>
               )}
             </View>
-            <View style={styles.pinSection}>
+            <View style={[styles.pinSection, !editingLogin && styles.savedLoginPinSection]}>
               <View style={styles.pinTitleRow}>
                 <Text style={styles.pinTitle}>OsonNasiya PINni kiriting</Text>
                 <View style={styles.pinLogoBadge}>
@@ -655,18 +672,31 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 48,
   },
+  savedLoginCard: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E1E9F2",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingTop: 13,
+    paddingBottom: 11,
+  },
   savedLoginRow: {
-    minHeight: 58,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    gap: 11,
   },
+  savedLoginIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#EAF4FF", alignItems: "center", justifyContent: "center" },
   savedLoginText: { flex: 1 },
-  savedLoginName: { color: "#172536", fontSize: 17, fontWeight: "700" },
-  changeLoginButton: { minHeight: 44, justifyContent: "center" },
-  changeLoginText: { color: "#1677D2", fontSize: 14, fontWeight: "700" },
+  savedLoginLabel: { color: "#718197", fontSize: 12, fontWeight: "600", marginBottom: 3 },
+  savedLoginName: { color: "#172536", fontSize: 17, fontWeight: "800" },
+  changeLoginButton: { minHeight: 45, borderTopWidth: 1, borderTopColor: "#E8EDF3", marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  changeLoginButtonPressed: { opacity: 0.65 },
+  changeLoginButtonDisabled: { opacity: 0.45 },
+  changeLoginText: { color: "#1677D2", fontSize: 13, fontWeight: "700" },
   pinSection: { alignItems: "center", marginTop: 60 },
+  savedLoginPinSection: { marginTop: 44 },
   pinTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -779,16 +809,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   keyboardSwitch: { color: "#1677D2", fontSize: 13, fontWeight: "700" },
-  input: {
-    height: 46,
+  loginInputCard: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     borderWidth: 1,
-    borderColor: "#D7DFE8",
-    borderRadius: 12,
+    borderColor: "#E1E9F2",
+    borderRadius: 16,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
+  },
+  loginInputCardFocused: {
+    borderColor: "#1677D2",
+    backgroundColor: "#FDFEFF",
+  },
+  loginInputIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "#EAF4FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loginInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 54,
+    paddingHorizontal: 0,
     color: "#172536",
     fontSize: 16,
-    marginBottom: 0,
   },
   keypadSection: {
     width: "100%",
