@@ -1207,25 +1207,6 @@ export default function CustomerCreatePage() {
                           placeholder="69.2401"
                           autoCapitalize="none"
                         />
-                        <LocationPicker
-                          visible={mapOpen}
-                          value={
-                            parseCoordinate(lat, -90, 90) !== null &&
-                            parseCoordinate(long, -180, 180) !== null
-                              ? {
-                                  latitude: Number(lat),
-                                  longitude: Number(long),
-                                }
-                              : null
-                          }
-                          onClose={() => setMapOpen(false)}
-                          onSelect={(point) => {
-                            setLat(point.latitude.toFixed(6));
-                            setLong(point.longitude.toFixed(6));
-                            setMapOpen(false);
-                            setLocationError("");
-                          }}
-                        />
                       </View>
                     )}
 
@@ -1392,6 +1373,22 @@ export default function CustomerCreatePage() {
           </KeyboardAvoidingView>
         </FullScreenLoading>
       </BlurTargetView>
+      <LocationPicker
+        visible={mapOpen}
+        value={
+          parseCoordinate(lat, -90, 90) !== null &&
+          parseCoordinate(long, -180, 180) !== null
+            ? { latitude: Number(lat), longitude: Number(long) }
+            : null
+        }
+        onClose={() => setMapOpen(false)}
+        onSelect={(point) => {
+          setLat(point.latitude.toFixed(6));
+          setLong(point.longitude.toFixed(6));
+          setMapOpen(false);
+          setLocationError("");
+        }}
+      />
       {regionFormOpen && (
         <KeyboardAvoidingView
           style={styles.regionModalOverlay}

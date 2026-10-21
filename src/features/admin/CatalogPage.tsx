@@ -1,6 +1,8 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, type User } from "./api";
 import CatalogManagement from "./CatalogManagement";
 import FullScreenLoading, { type DeleteConfirmation } from "./FullScreenLoading";
@@ -12,6 +14,7 @@ type Mode = "groups" | "sections" | "products";
 
 export default function CatalogPage({ mode }: { mode: Mode }) {
   const params = useLocalSearchParams<{ groupId?: string; sectionId?: string }>();
+  const insets = useSafeAreaInsets();
   const [token, setToken] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
@@ -23,6 +26,11 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
   const [refreshRequest, setRefreshRequest] = useState(0);
   const [createCategoryRequest, setCreateCategoryRequest] = useState(0);
   const [sessionRequest, setSessionRequest] = useState(0);
+  const [groupSearch, setGroupSearch] = useState("");
+  const [sectionSearch, setSectionSearch] = useState("");
+  const catalogSearch = mode === "groups" ? groupSearch : sectionSearch;
+  const setCatalogSearch = mode === "groups" ? setGroupSearch : setSectionSearch;
+  const hasCategorySearch = (mode === "groups" || mode === "sections") && !!token && !checking && !error;
   const onRefreshComplete = useCallback(() => setRefreshing(false), []);
   const onMutationBusyChange = useCallback((busy: boolean, message = "Saqlanmoqda...") => {
     if (busy) {
@@ -73,25 +81,51 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
   }, []);
 
   return <FullScreenLoading active={mutationBusy} message={mutationMessage} successToast={successToast} onSuccessDismiss={dismissSuccess} confirmation={deleteConfirmation && { ...deleteConfirmation, onConfirm: () => { setDeleteConfirmation(null); deleteConfirmation.onConfirm(); } }} onCancelConfirmation={() => setDeleteConfirmation(null)}>
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<PullRefreshControl refreshing={refreshing || checking} onRefresh={() => { if (mutationBusy || refreshing || checking) return; setError(""); if (token) { setRefreshing(true); setRefreshRequest((value) => value + 1); } else { setChecking(true); setSessionRequest((value) => value + 1); } }} />}>
-    <View style={styles.headerActions}>
-      <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button">
-        <Text style={styles.backText}>‹  Orqaga</Text>
-      </Pressable>
-      {(mode === "groups" || mode === "sections") && !!token && !checking && !error && <Pressable
-        style={[styles.addGroupButton, mutationBusy && styles.disabledButton]}
-        onPress={() => setCreateCategoryRequest((value) => value + 1)}
-        disabled={mutationBusy}
-        accessibilityRole="button"
-        accessibilityLabel={mode === "groups" ? "Yangi guruh yaratish" : "Yangi bo'lim yaratish"}
-      >
-        <Text style={styles.addGroupIcon}>+</Text>
-        <Text style={styles.addGroupText}>{mode === "groups" ? "Yangi guruh" : "Yangi bo'lim"}</Text>
-      </Pressable>}
+    <ScrollView
+      style={[styles.screen, (mode === "groups" || mode === "sections") && { marginTop: insets.top }]}
+      contentContainerStyle={[styles.content, (mode === "groups" || mode === "sections") && { paddingTop: Math.max(12, 56 - insets.top) }]}
+      keyboardShouldPersistTaps="handled"
+      stickyHeaderIndices={hasCategorySearch ? [1] : undefined}
+      refreshControl={<PullRefreshControl refreshing={refreshing || checking} onRefresh={() => { if (mutationBusy || refreshing || checking) return; setError(""); if (token) { setRefreshing(true); setRefreshRequest((value) => value + 1); } else { setChecking(true); setSessionRequest((value) => value + 1); } }} />}
+    >
+    <View>
+      <View style={styles.headerActions}>
+        <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button">
+          <Text style={styles.backText}>‹  Orqaga</Text>
+        </Pressable>
+        {(mode === "groups" || mode === "sections") && !!token && !checking && !error && <Pressable
+          style={[styles.addGroupButton, mutationBusy && styles.disabledButton]}
+          onPress={() => setCreateCategoryRequest((value) => value + 1)}
+          disabled={mutationBusy}
+          accessibilityRole="button"
+          accessibilityLabel={mode === "groups" ? "Yangi guruh yaratish" : "Yangi bo'lim yaratish"}
+        >
+          <Text style={styles.addGroupIcon}>+</Text>
+          <Text style={styles.addGroupText}>{mode === "groups" ? "Yangi guruh" : "Yangi bo'lim"}</Text>
+        </Pressable>}
+      </View>
+      <Text style={styles.eyebrow}>KATALOG</Text>
+      <Text style={styles.title}>{mode === "groups" ? "Guruhlar" : mode === "sections" ? "Bo'limlar" : "Mahsulotlar"}</Text>
+      <Text style={styles.subtitle}>{mode === "groups" ? "Guruh yarating, nomini o'zgartiring yoki bo'limlariga o'ting." : mode === "sections" ? "Guruhni tanlab, uning bo'limlarini boshqaring." : "Bo'limni tanlab, mahsulot va rasmlarini boshqaring."}</Text>
     </View>
-    <Text style={styles.eyebrow}>KATALOG</Text>
-    <Text style={styles.title}>{mode === "groups" ? "Guruhlar" : mode === "sections" ? "Bo'limlar" : "Mahsulotlar"}</Text>
-    <Text style={styles.subtitle}>{mode === "groups" ? "Guruh yarating, nomini o'zgartiring yoki bo'limlariga o'ting." : mode === "sections" ? "Guruhni tanlab, uning bo'limlarini boshqaring." : "Bo'limni tanlab, mahsulot va rasmlarini boshqaring."}</Text>
+    {hasCategorySearch && <View style={styles.sectionSearchSticky}>
+      <View style={styles.sectionSearchRow}>
+        <SymbolView name={{ ios: "magnifyingglass", android: "search", web: "search" }} size={20} tintColor="#7B8CA0" />
+        <TextInput
+          style={styles.sectionSearchInput}
+          value={catalogSearch}
+          onChangeText={setCatalogSearch}
+          placeholder={mode === "groups" ? "Guruh nomini qidiring" : "Bo'lim nomini qidiring"}
+          placeholderTextColor="#8A98A8"
+          maxLength={100}
+          autoCorrect={false}
+          accessibilityLabel={mode === "groups" ? "Guruh nomi bo'yicha qidirish" : "Bo'lim nomi bo'yicha qidirish"}
+        />
+        {!!catalogSearch && <Pressable onPress={() => setCatalogSearch("")} accessibilityRole="button" accessibilityLabel="Qidiruvni tozalash" style={styles.clearSearchButton}>
+          <Text style={styles.clearSearchText}>{"×"}</Text>
+        </Pressable>}
+      </View>
+    </View>}
     {checking ? <View style={styles.center}><LoadingMark size={72} /></View> : error ? <Text style={styles.error}>{error}</Text> : token ?
       <CatalogManagement
         mode={mode}
@@ -105,6 +139,9 @@ export default function CatalogPage({ mode }: { mode: Mode }) {
         onSessionExpired={handleSessionExpired}
         refreshRequest={refreshRequest}
         onRefreshComplete={onRefreshComplete}
+        sectionSearch={sectionSearch}
+        onSectionSearchChange={setSectionSearch}
+        groupSearch={groupSearch}
       /> : null}
     </ScrollView>
   </FullScreenLoading>;
@@ -123,6 +160,11 @@ const styles = StyleSheet.create({
   eyebrow: { color: "#1677D2", fontSize: 12, fontWeight: "800", letterSpacing: 1.5, marginBottom: 8 },
   title: { color: "#172536", fontSize: 30, fontWeight: "800" },
   subtitle: { color: "#627184", fontSize: 15, lineHeight: 22, marginTop: 8, marginBottom: 24 },
+  sectionSearchSticky: { backgroundColor: "#F6F8FB", marginHorizontal: -20, paddingHorizontal: 20, paddingTop: 6, paddingBottom: 12, zIndex: 1 },
+  sectionSearchRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#D7DFE8", borderRadius: 12, paddingLeft: 12, paddingRight: 4, backgroundColor: "#FFFFFF" },
+  sectionSearchInput: { flex: 1, minWidth: 0, height: 46, color: "#172536", fontSize: 15 },
+  clearSearchButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  clearSearchText: { color: "#627184", fontSize: 24, lineHeight: 28 },
   center: { alignItems: "center", paddingVertical: 48 },
   error: { color: "#C3333D", fontSize: 14 },
 });
