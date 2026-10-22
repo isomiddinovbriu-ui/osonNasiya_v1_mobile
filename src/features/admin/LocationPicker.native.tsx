@@ -1,7 +1,7 @@
 import * as Location from "expo-location";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, type MapPressEvent } from "react-native-maps";
+import { YandexMapSurface, yandexMapUnavailableMessage } from "./YandexMapSurfaceLoader.native";
 
 type Coordinates = { latitude: number; longitude: number };
 const TASHKENT = { latitude: 41.2995, longitude: 69.2401 };
@@ -12,8 +12,9 @@ export default function LocationPicker({ visible, value, onClose, onSelect }: {
   const [picked, setPicked] = useState<Coordinates | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const mapRef = useRef<MapView>(null);
+  const [currentLocationCenter, setCurrentLocationCenter] = useState<Coordinates | null>(null);
   const point = picked ?? value;
+  const mapCenter = currentLocationCenter ?? value ?? TASHKENT;
 
   async function getCurrentLocation() {
     setBusy(true);
@@ -27,7 +28,7 @@ export default function LocationPicker({ visible, value, onClose, onSelect }: {
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const coordinates = { latitude: position.coords.latitude, longitude: position.coords.longitude };
       setPicked(coordinates);
-      mapRef.current?.animateToRegion({ ...coordinates, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+      setCurrentLocationCenter(coordinates);
     } catch {
       setError("Joriy joylashuv olinmadi. Xaritadan nuqtani tanlang.");
     } finally {
@@ -35,12 +36,7 @@ export default function LocationPicker({ visible, value, onClose, onSelect }: {
     }
   }
 
-  function selectMapPoint(event: MapPressEvent) {
-    setPicked(event.nativeEvent.coordinate);
-    setError("");
-  }
-
-  function close() { setPicked(null); setError(""); onClose(); }
+  function close() { setPicked(null); setCurrentLocationCenter(null); setError(""); onClose(); }
 
   return <Modal visible={visible} animationType="slide" onRequestClose={close}>
     <View style={styles.screen}>
@@ -51,19 +47,17 @@ export default function LocationPicker({ visible, value, onClose, onSelect }: {
         </Pressable>
       </View>
       <Text style={styles.hint}>Xaritadagi kerakli joyga bosing.</Text>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={{ ...(value ?? TASHKENT), latitudeDelta: 0.04, longitudeDelta: 0.04 }}
-        onPress={selectMapPoint}
-      >
-        {point && <Marker coordinate={point} />}
-      </MapView>
+      {YandexMapSurface ? (
+        <YandexMapSurface center={mapCenter} point={point} onSelect={(selected) => {
+          setPicked(selected);
+          setError("");
+        }} />
+      ) : <View style={styles.unavailable}><Text style={styles.unavailableText}>{yandexMapUnavailableMessage}</Text></View>}
       {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
       {point && <Text style={styles.coordinates}>{point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}</Text>}
       <View style={styles.footer}>
         <Pressable style={styles.secondary} onPress={() => void getCurrentLocation()} disabled={busy} accessibilityRole="button"><Text style={styles.link}>{busy ? "Olinmoqda..." : "Joriy joylashuv"}</Text></Pressable>
-        <Pressable style={[styles.button, !point && styles.disabled]} onPress={() => { if (point) { onSelect(point); setPicked(null); } }} disabled={!point} accessibilityRole="button"><Text style={styles.buttonText}>Shu joyni tanlash</Text></Pressable>
+        <Pressable style={[styles.button, !point && styles.disabled]} onPress={() => { if (point) { onSelect(point); setPicked(null); setCurrentLocationCenter(null); } }} disabled={!point} accessibilityRole="button"><Text style={styles.buttonText}>Shu joyni tanlash</Text></Pressable>
       </View>
     </View>
   </Modal>;
@@ -76,7 +70,8 @@ const styles = StyleSheet.create({
   cancelButton: { minHeight: 44, paddingHorizontal: 12, borderWidth: 1, borderColor: "#C3333D", borderRadius: 10, alignItems: "center", justifyContent: "center" },
   cancelText: { color: "#C3333D", fontSize: 14, fontWeight: "700" },
   hint: { color: "#627184", paddingHorizontal: 20, paddingBottom: 12 },
-  map: { flex: 1 },
+  unavailable: { flex: 1, justifyContent: "center", paddingHorizontal: 24, backgroundColor: "#F6F8FB" },
+  unavailableText: { color: "#45586E", fontSize: 16, textAlign: "center", lineHeight: 24 },
   footer: { padding: 20, gap: 10 },
   secondary: { alignItems: "center", padding: 12 },
   link: { color: "#1677D2", fontWeight: "700", fontSize: 15 },
