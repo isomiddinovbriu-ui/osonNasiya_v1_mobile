@@ -3,7 +3,7 @@ import { router } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, apiRequestText, type User } from "./api";
 import { formatMoney } from "./customers";
@@ -59,6 +59,7 @@ const tabs = [
   { id: "monthly-underpaid", label: "Oylik kamchilik", icon: { ios: "exclamationmark.circle.fill", android: "error_outline", web: "error_outline" } },
 ] as const;
 const underpaidLimit = 20;
+const reportMonths = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
 
 function tashkentToday() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -89,10 +90,6 @@ function validDate(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-function validMonth(value: string) {
-  return /^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/.test(value);
-}
-
 function reportPath(tab: ReportTab, from: string, to: string, revenueGroup: RevenueGroup, salesGroup: SalesGroup, month: string, page: number) {
   if (tab === "revenue") return `/reports/revenue?from=${from}&to=${to}&groupBy=${revenueGroup}`;
   if (tab === "sales") return `/reports/sales?from=${from}&to=${to}&groupBy=${salesGroup}`;
@@ -109,7 +106,8 @@ export default function ReportsPage() {
   const [appliedTo, setAppliedTo] = useState(tashkentToday);
   const [revenueGroup, setRevenueGroup] = useState<RevenueGroup>("day");
   const [salesGroup, setSalesGroup] = useState<SalesGroup>("region");
-  const [month, setMonth] = useState(() => tashkentToday().slice(0, 7));
+  const [reportYear, setReportYear] = useState(() => Number(tashkentToday().slice(0, 4)));
+  const [reportMonth, setReportMonth] = useState(() => Number(tashkentToday().slice(5, 7)));
   const [appliedMonth, setAppliedMonth] = useState(() => tashkentToday().slice(0, 7));
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -165,28 +163,19 @@ export default function ReportsPage() {
 
   useEffect(() => {
     const requestId = ++requestSequence.current;
+    if (tab === "monthly-underpaid" && reportMonth === 0) return;
     const timer = setTimeout(() => { void load(requestId); }, 0);
     return () => { clearTimeout(timer); requestSequence.current += 1; };
-  }, [load, refreshKey]);
+  }, [load, refreshKey, reportMonth, tab]);
 
   function applyFilter() {
-    if (tab === "monthly-underpaid") {
-      if (!validMonth(month.trim())) {
-        setFilterError("Oyni YYYY-MM shaklida kiriting.");
-        return;
-      }
-      setFilterError("");
-      setPage(1);
-      setAppliedMonth(month.trim());
-    } else {
-      if (!validDate(from.trim()) || !validDate(to.trim()) || from.trim() > to.trim()) {
-        setFilterError("Sanalarni YYYY-MM-DD shaklida kiriting. Boshlanish tugashdan keyin bo‘lmasin.");
-        return;
-      }
-      setFilterError("");
-      setAppliedFrom(from.trim());
-      setAppliedTo(to.trim());
+    if (!validDate(from.trim()) || !validDate(to.trim()) || from.trim() > to.trim()) {
+      setFilterError("Sanalarni YYYY-MM-DD shaklida kiriting. Boshlanish tugashdan keyin bo‘lmasin.");
+      return;
     }
+    setFilterError("");
+    setAppliedFrom(from.trim());
+    setAppliedTo(to.trim());
     setRefreshKey((value) => value + 1);
   }
 
@@ -233,6 +222,9 @@ export default function ReportsPage() {
   const underpaidPages = result?.kind === "monthly-underpaid"
     ? Math.max(1, Math.ceil(result.data.total / result.data.limit)) : 1;
   const todayKey = tashkentToday();
+  const currentYear = Number(todayKey.slice(0, 4));
+  const currentMonth = Number(todayKey.slice(5, 7));
+  const reportYears = Array.from({ length: currentYear - 2019 }, (_, index) => 2020 + index);
   const datePresets = [
     { label: "Bugun", from: todayKey, to: todayKey },
     { label: "Oxirgi 7 kun", from: daysBefore(todayKey, 6), to: todayKey },
@@ -267,7 +259,25 @@ export default function ReportsPage() {
           <View style={styles.filterHeadingIcon}><SymbolView name={{ ios: "calendar", android: "calendar_month", web: "calendar_month" }} size={19} tintColor="#1677D2" /></View>
           <View><Text style={styles.filterTitle}>{tab === "monthly-underpaid" ? "Hisobot oyi" : "Hisobot davri"}</Text><Text style={styles.filterSubtitle}>Toshkent vaqti bo‘yicha</Text></View>
         </View>
-        {tab === "monthly-underpaid" ? <LabeledInput label="Oy" value={month} onChangeText={(value) => { setMonth(value); setFilterError(""); }} placeholder="YYYY-MM" maxLength={7} /> : <>
+        {tab === "monthly-underpaid" ? <>
+          <Text style={styles.inputLabel}>Yil</Text>
+          <View style={styles.reportOptions}>
+            {reportYears.map((year) => <Pressable key={year} onPress={() => { if (year === reportYear) return; requestSequence.current += 1; setReportYear(year); setReportMonth(0); setResult(null); setLoading(false); setError(""); setFilterError(""); }} accessibilityRole="radio" accessibilityLabel={`${year}-yil`} accessibilityState={{ selected: reportYear === year }} style={[styles.reportOption, styles.yearOption, reportYear === year && styles.reportOptionSelected]}>
+              <Text style={[styles.reportOptionText, reportYear === year && styles.reportOptionTextSelected]}>{year}</Text>
+            </Pressable>)}
+          </View>
+          <Text style={styles.inputLabel}>Oy</Text>
+          <View style={styles.reportOptions}>
+            {reportMonths.map((name, index) => {
+              const value = index + 1;
+              const future = reportYear === currentYear && value > currentMonth;
+              const selected = reportMonth === value;
+              return <Pressable key={name} onPress={() => { setReportMonth(value); setPage(1); setAppliedMonth(`${reportYear}-${String(value).padStart(2, "0")}`); setRefreshKey((current) => current + 1); setFilterError(""); }} disabled={future} accessibilityRole="radio" accessibilityLabel={`${name} ${reportYear}`} accessibilityState={{ selected, disabled: future }} style={[styles.reportOption, styles.monthOption, selected && styles.reportOptionSelected, future && styles.disabled]}>
+                <Text style={[styles.reportOptionText, selected && styles.reportOptionTextSelected]}>{name}</Text>
+              </Pressable>;
+            })}
+          </View>
+        </> : <>
           <Text style={styles.inputLabel}>Tez tanlash</Text>
           <View style={styles.datePresets}>
             {datePresets.map((preset) => {
@@ -291,9 +301,10 @@ export default function ReportsPage() {
           </View>
         </>}
         {!!filterError && <Text style={styles.error} accessibilityRole="alert">{filterError}</Text>}
-        <Pressable onPress={applyFilter} accessibilityRole="button" style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}><Text style={styles.primaryText}>Hisobotni ko‘rish</Text><Text style={styles.primaryArrow}>›</Text></Pressable>
+        {tab !== "monthly-underpaid" && <Pressable onPress={applyFilter} accessibilityRole="button" style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}><Text style={styles.primaryText}>Hisobotni ko‘rish</Text><Text style={styles.primaryArrow}>›</Text></Pressable>}
       </View>}
 
+      {tab === "monthly-underpaid" && reportMonth === 0 && <Text style={styles.hint}>Hisobotni ko‘rish uchun oyni tanlang.</Text>}
       {tab === "debt" && <View style={styles.debtNote}><SymbolView name={{ ios: "info.circle.fill", android: "info", web: "info" }} size={20} tintColor="#1677D2" /><Text style={styles.debtNoteText}>Qarz holati ayni vaqtdagi ma’lumotlar asosida olinadi.</Text></View>}
       {loading && <View style={styles.loading}><LoadingMark size={64} /><Text style={styles.muted}>Hisobot yuklanmoqda...</Text></View>}
       {!!error && !loading && <View style={styles.errorCard}>
@@ -348,10 +359,6 @@ export default function ReportsPage() {
   );
 }
 
-function LabeledInput({ label, value, onChangeText, placeholder, maxLength }: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; maxLength: number }) {
-  return <View style={styles.inputGroup}><Text style={styles.inputLabel}>{label}</Text><TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#93A0AE" keyboardType="numbers-and-punctuation" autoCapitalize="none" maxLength={maxLength} accessibilityLabel={label} /></View>;
-}
-
 function Summary({ title, amount, count }: { title: string; amount: number; count: string }) {
   return <View style={styles.summary}><Text style={styles.summaryLabel}>{title}</Text><Text style={styles.summaryAmount}>{formatMoney(amount)}</Text><Text style={styles.summaryCount}>{count}</Text></View>;
 }
@@ -389,9 +396,14 @@ const styles = StyleSheet.create({
   datePresetSelected: { borderColor: "#A8D0F5", backgroundColor: "#EAF4FF" },
   datePresetText: { color: "#53647A", fontSize: 13, fontWeight: "700" },
   datePresetTextSelected: { color: "#1677D2" },
-  inputGroup: { flex: 1, marginBottom: 12 },
   inputLabel: { color: "#53647A", fontSize: 12, fontWeight: "700", marginBottom: 7 },
-  input: { minHeight: 46, borderWidth: 1, borderColor: "#DCE4ED", borderRadius: 11, paddingHorizontal: 11, backgroundColor: "#FAFBFD", color: "#172536", fontSize: 13 },
+  reportOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 15 },
+  reportOption: { minHeight: 42, borderWidth: 1, borderColor: "#DCE4ED", borderRadius: 10, backgroundColor: "#FAFBFD", alignItems: "center", justifyContent: "center" },
+  yearOption: { width: "22%", flexGrow: 1 },
+  monthOption: { width: "30%", flexGrow: 1 },
+  reportOptionSelected: { borderColor: "#8FC3F4", backgroundColor: "#EAF4FF" },
+  reportOptionText: { color: "#53647A", fontSize: 13, fontWeight: "700" },
+  reportOptionTextSelected: { color: "#1677D2" },
   groupRow: { flexDirection: "row", gap: 8, marginTop: 1, marginBottom: 13 },
   chip: { minHeight: 37, minWidth: 76, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: "#E9EDF3", backgroundColor: "#F2F5F8", alignItems: "center", justifyContent: "center" },
   chipSelected: { backgroundColor: "#EAF4FF", borderColor: "#A8D0F5" },

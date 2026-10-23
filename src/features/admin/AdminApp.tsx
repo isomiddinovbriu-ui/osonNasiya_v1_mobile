@@ -251,7 +251,10 @@ export default function App() {
           ]
         : []),
       ...(user.role === "sotuvchi"
-        ? [{ title: "Yangi mijoz", href: "/customers/new" as Href, icon: { ios: "person.badge.plus", android: "person_add", web: "person_add" } as const }]
+        ? [
+            { title: "Yangi mijoz", href: "/customers/new" as Href, icon: { ios: "person.badge.plus", android: "person_add", web: "person_add" } as const },
+            { title: "Qarzlarni undirish", href: "/sales" as Href, icon: { ios: "creditcard", android: "payments", web: "payments" } as const },
+          ]
         : []),
       ...(user.role === "super_admin" || user.role === "yiguvchi"
         ? [{ title: "Ish ro‘yxati", href: "/collections" as Href, icon: { ios: "list.bullet.clipboard", android: "assignment", web: "assignment" } as const }]

@@ -1,7 +1,7 @@
 import { getStoredToken, refreshStoredSession } from "./session";
 
 export type UserRole = "super_admin" | "yiguvchi" | "sotuvchi" | "product_creator";
-export type User = { id: string; login: string; role: UserRole; name: string; description: string };
+export type User = { id: string; login: string; role: UserRole; name: string; description: string; avatarUrl: string | null; createdAt: string | null; updatedAt: string | null };
 export type AuthResult = {
   token: string;
   accessToken: string;

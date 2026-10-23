@@ -1,5 +1,6 @@
 import * as Location from "expo-location";
 import { router, useFocusEffect, type Href } from "expo-router";
+import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -11,7 +12,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, type User } from "./api";
+import { getCustomerProgress } from "./customerProgress";
 import CatalogFilterPicker, {
   type CatalogFilterValues,
 } from "./CatalogFilterPicker";
@@ -26,6 +29,8 @@ import {
   type CustomerListResponse,
 } from "./customers";
 import LoadingMark from "./LoadingMark";
+import ListPagination from "./ListPagination";
+import { formatMoneyWithUnits } from "./money";
 import NearbyLocationFilter, { type Coordinates } from "./NearbyLocationFilter";
 import { PullRefreshControl } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken } from "./session";
@@ -178,14 +183,16 @@ function queryString(filters: Filters, page: number, limit: number) {
   return `?${[...entries, `page=${page}`, `limit=${limit}`].join("&")}`;
 }
 
-type NearbyCustomer = Pick<Customer, "mijoz_id" | "name" | "phoneNumber" | "addPhoneNumber" | "address" | "lat" | "long"> & { distanceKm: number };
+type NearbyCustomer = Customer & { distanceMeters: number; distanceKm: number };
 type NearbyResponse = { customers: NearbyCustomer[]; total: number };
+const pageSize = 10;
 
 function formatDistance(distanceKm: number) {
   return distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toLocaleString("uz-UZ", { maximumFractionDigits: 1 })} km`;
 }
 
 export default function CustomerListPage() {
+  const insets = useSafeAreaInsets();
   const [token, setToken] = useState<string | null>(null);
   const [isSeller, setIsSeller] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -197,7 +204,6 @@ export default function CustomerListPage() {
   const [rows, setRows] = useState<(Customer | NearbyCustomer)[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [locationPoint, setLocationPoint] = useState<Coordinates | null>(null);
@@ -276,7 +282,7 @@ export default function CustomerListPage() {
         setTotal(result.total);
       } else {
         const result = await apiRequest<CustomerListResponse>(
-          `/customers${queryString(applied, page, limit)}`,
+          `/customers${queryString(applied, page, pageSize)}`,
           { headers },
         );
         if (currentRequest !== requestId.current) return;
@@ -294,7 +300,7 @@ export default function CustomerListPage() {
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [token, applied, page, limit, handleExpired]);
+  }, [token, applied, page, handleExpired]);
 
   useFocusEffect(
     useCallback(() => {
@@ -533,7 +539,6 @@ export default function CustomerListPage() {
     Keyboard.dismiss();
   }
 
-  const pages = Math.max(1, Math.ceil(total / limit));
   const locationFilterKeys = new Set([
     "lat",
     "latMin",
@@ -571,15 +576,8 @@ export default function CustomerListPage() {
 
   const header = (
     <View>
-      <View style={styles.headerActions}>
-        <Pressable
-          onPress={() => router.back()}
-          style={styles.back}
-          accessibilityRole="button"
-        >
-          <Text style={styles.link}>‹ Orqaga</Text>
-        </Pressable>
-        {isSeller && (
+      {isSeller && (
+        <View style={styles.headerActions}>
           <Pressable
             onPress={() => router.push("/customers/new")}
             style={styles.addCustomerButton}
@@ -587,10 +585,10 @@ export default function CustomerListPage() {
             accessibilityLabel="Mijoz qo'shish"
           >
             <Text style={styles.addCustomerIcon}>+</Text>
-            <Text style={styles.addCustomerText}>Mijoz qo'shish</Text>
+            <Text style={styles.addCustomerText}>Mijoz qo‘shish</Text>
           </Pressable>
-        )}
-      </View>
+        </View>
+      )}
       <Text style={styles.title}>Mijozlar</Text>
       <Text style={styles.subtitle}>
         {locationPoint ? "Tanlangan joy atrofidagi mijozlar." : "Mijozlarni qidiring va savdo ma’lumotlarini ko'ring."}
@@ -678,7 +676,7 @@ export default function CustomerListPage() {
                             onSessionExpired={handleExpired}
                           />
                           <Text style={styles.label}>
-                            Mahsulot nomi bo'yicha
+                            Mahsulot nomi bo‘yicha
                           </Text>
                           <TextInput
                             style={styles.input}
@@ -748,7 +746,7 @@ export default function CustomerListPage() {
                                 return (
                                   <View key={key}>
                                     <Text style={styles.label}>
-                                      Mijoz raqami oralig'i
+                                      Mijoz raqami oralig‘i
                                     </Text>
                                     <View style={styles.rangeRow}>
                                       <TextInput
@@ -926,17 +924,31 @@ export default function CustomerListPage() {
   );
 
   return (
+    <View style={styles.screen}>
+    <View style={[styles.fixedHeader, { paddingTop: insets.top }]}>
+      <Pressable
+        onPress={() => router.back()}
+        style={styles.back}
+        accessibilityRole="button"
+        accessibilityLabel="Orqaga qaytish"
+      >
+        <Text style={styles.link}>‹ Orqaga</Text>
+      </Pressable>
+    </View>
     <FlatList
-      style={styles.screen}
+      key={page}
+      style={styles.list}
       refreshControl={<PullRefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
-      data={loading ? [] : rows}
+      data={loading ? [] : locationPoint ? rows.slice((page - 1) * pageSize, page * pageSize) : rows}
       keyExtractor={(item) => String(item.mijoz_id)}
       ListHeaderComponent={header}
-      renderItem={({ item }) => (
+      renderItem={({ item }) => {
+        const { percent, tone } = getCustomerProgress(item);
+        return (
         <Pressable
-          style={styles.customerCard}
+          style={[styles.customerCard, { backgroundColor: tone.background, borderColor: tone.track }]}
           onPress={() =>
             router.push({
               pathname: "/customers/detail",
@@ -944,87 +956,72 @@ export default function CustomerListPage() {
             } as Href)
           }
           accessibilityRole="button"
+          accessibilityLabel={`${item.name} mijozining ma'lumotlarini ko'rish`}
         >
           {"distanceKm" in item ? <>
             <View style={styles.customerTop}>
               <Text style={styles.customerName}>{item.name}</Text>
-              <Text style={styles.distanceBadge}>{formatDistance(item.distanceKm)}</Text>
+              <Text style={styles.distanceBadge}>{formatDistance(item.distanceMeters / 1000)}</Text>
+              <View style={styles.viewIcon}>
+                <SymbolView name={{ ios: "eye", android: "visibility", web: "visibility" }} size={20} tintColor="#1677D2" />
+              </View>
             </View>
             <Text style={styles.customerMeta}>Mijoz raqami: {item.mijoz_id}</Text>
             <Text style={styles.customerMeta}>{item.phoneNumber}</Text>
             {!!item.address && <Text style={styles.customerMeta}>{item.address}</Text>}
-            {!!item.addPhoneNumber && <Text style={styles.customerMeta}>Qo'shimcha telefon: {item.addPhoneNumber}</Text>}
+            {!!item.addPhoneNumber && <Text style={styles.customerMeta}>Qo‘shimcha telefon: {item.addPhoneNumber}</Text>}
           </> : <>
           <View style={styles.customerTop}>
             <Text style={styles.customerName}>{item.name}</Text>
-            <Text
-              style={[
-                styles.badge,
-                item.remainingBalance <= 0 && styles.badgePaid,
-              ]}
-            >
-              {item.remainingBalance > 0 ? "Qarzi bor" : "To'langan"}
-            </Text>
+            <View style={styles.customerTopActions}>
+              <Text style={[styles.badge, { color: tone.value, backgroundColor: tone.track }]}>
+                {item.remainingBalance > 0 ? "Qarzi bor" : "To'langan"}
+              </Text>
+              <View style={styles.viewIcon}>
+                <SymbolView name={{ ios: "eye", android: "visibility", web: "visibility" }} size={20} tintColor="#1677D2" />
+              </View>
+            </View>
           </View>
           <Text style={styles.customerMeta}>Mijoz raqami: {item.mijoz_id}</Text>
           <Text style={styles.customerMeta}>
             {item.phoneNumber} · {item.productName}
           </Text>
           {!!item.address && <Text style={styles.customerMeta}>{item.address}</Text>}
-          <Text style={styles.customerAmount}>
+          </>}
+          <Text style={[styles.customerAmount, { color: tone.value }]}>
             Qolgan qarz: {formatMoney(item.remainingBalance)}
           </Text>
+          <Text style={styles.amountWords}>{formatMoneyWithUnits(item.remainingBalance, true)}</Text>
+          <View style={styles.customerProgressRow}>
+            <View
+              style={[styles.customerProgressTrack, { backgroundColor: tone.track }]}
+              accessibilityRole="progressbar"
+              accessibilityLabel="To‘langan ulush"
+              accessibilityValue={{ min: 0, max: 100, now: percent }}
+            >
+              <View style={[styles.customerProgressFill, { width: `${percent}%`, backgroundColor: tone.fill }]} />
+            </View>
+            <Text style={[styles.customerProgressText, { color: tone.value }]}>{percent}%</Text>
+          </View>
           <Text style={styles.customerMeta}>{formatDate(item.createdAt)}</Text>
-          </>}
         </Pressable>
-      )}
+        );
+      }}
       ListEmptyComponent={
         !loading && !checking && !error ? (
           <Text style={styles.empty}>{locationPoint ? "Bu masofada mijoz topilmadi." : "Mijoz topilmadi."}</Text>
         ) : null
       }
-      ListFooterComponent={
-        !locationPoint && !loading && !checking && !error ? (
-          <View style={styles.footer}>
-            <Text style={styles.hint}>
-              {page} / {pages} sahifa
-            </Text>
-            <View style={styles.actions}>
-              <Pressable
-                style={[styles.pageButton, page <= 1 && styles.disabled]}
-                disabled={page <= 1 || loading}
-                onPress={() => setPage((current) => current - 1)}
-                accessibilityRole="button"
-              >
-                <Text style={styles.link}>Oldingi</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.pageButton, page >= pages && styles.disabled]}
-                disabled={page >= pages || loading}
-                onPress={() => setPage((current) => current + 1)}
-                accessibilityRole="button"
-              >
-                <Text style={styles.link}>Keyingi</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.label}>Sahifadagi yozuvlar</Text>
-            <View style={styles.options}>
-              {[20, 50, 100].map((size) => (
-                <Choice
-                  key={size}
-                  title={String(size)}
-                  selected={limit === size}
-                  onPress={() => {
-                    setPage(1);
-                    setLimit(size);
-                  }}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null
-      }
+      ListFooterComponent={!loading && !checking && !error ? (
+        <ListPagination
+          page={page}
+          limit={pageSize}
+          total={locationPoint ? rows.length : total}
+          onPageChange={setPage}
+        />
+      ) : null}
     />
+    </View>
   );
 }
 
@@ -1053,11 +1050,13 @@ function Choice({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F6F8FB" },
-  content: { paddingHorizontal: 18, paddingTop: 54, paddingBottom: 40 },
+  fixedHeader: { paddingHorizontal: 18, backgroundColor: "#F6F8FB", borderBottomWidth: 1, borderBottomColor: "#E8EDF3" },
+  list: { flex: 1 },
+  content: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 40 },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     marginBottom: 10,
   },
   back: {
@@ -1190,6 +1189,13 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: "flex-start",
   },
+  customerTopActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  viewIcon: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   customerName: { flex: 1, color: "#172536", fontSize: 17, fontWeight: "800" },
   customerMeta: {
     color: "#627184",
@@ -1203,6 +1209,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 9,
   },
+  amountWords: { color: "#627184", fontSize: 12, marginTop: 4 },
+  customerProgressRow: { flexDirection: "row", alignItems: "center", gap: 9, marginTop: 9 },
+  customerProgressTrack: { flex: 1, height: 7, borderRadius: 4, overflow: "hidden" },
+  customerProgressFill: { height: "100%", borderRadius: 4 },
+  customerProgressText: { minWidth: 32, fontSize: 12, fontWeight: "700", textAlign: "right" },
   badge: {
     color: "#B76517",
     backgroundColor: "#FFF2E4",

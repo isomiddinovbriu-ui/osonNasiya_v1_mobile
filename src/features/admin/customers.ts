@@ -55,9 +55,19 @@ export function formatMoney(value: number) {
   return `${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} so'm`;
 }
 
+const monthNames = [
+  "yanvar", "fevral", "mart", "aprel", "may", "iyun",
+  "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr",
+];
+
 export function formatDate(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("uz-UZ");
+  if (Number.isNaN(date.getTime())) return value;
+
+  // Use Uzbekistan's fixed UTC+5 time, regardless of the device time zone.
+  const tashkent = new Date(date.getTime() + 5 * 60 * 60 * 1000);
+  const time = `${String(tashkent.getUTCHours()).padStart(2, "0")}:${String(tashkent.getUTCMinutes()).padStart(2, "0")}`;
+  return `${tashkent.getUTCDate()}-${monthNames[tashkent.getUTCMonth()]}, ${tashkent.getUTCFullYear()} yil, ${time}`;
 }
 
 export function validPaymentMonth(value: string) {
