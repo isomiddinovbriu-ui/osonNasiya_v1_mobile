@@ -1,6 +1,7 @@
 import { randomUUID } from "expo-crypto";
 import * as Linking from "expo-linking";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
@@ -29,6 +30,7 @@ import LoadingMark from "./LoadingMark";
 import { formatMoneyWithUnits, parseMoney } from "./money";
 import MoneyInput from "./MoneyInput";
 import PaymentMethodFields, { ProviderIcon } from "./PaymentMethodFields";
+import TransferMethodIcon from "./TransferMethodIcon";
 import {
   paymentDetailsError,
   paymentExtraFields,
@@ -585,6 +587,17 @@ export default function CustomerDetailPage({
     }
   }
 
+  const locationPoint =
+    customer &&
+    customer.lat !== null &&
+    customer.long !== null &&
+    Number.isFinite(customer.lat) &&
+    Number.isFinite(customer.long) &&
+    Math.abs(customer.lat) <= 90 &&
+    Math.abs(customer.long) <= 180
+      ? { latitude: customer.lat, longitude: customer.long }
+      : null;
+
   return (
     <View style={styles.screen}>
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
@@ -638,13 +651,38 @@ export default function CustomerDetailPage({
           ) : undefined
         }
       >
-        <Text style={styles.title}>
-          {paymentStep > 0
-            ? "Keyingi to‘lov"
-            : paymentsOnly
-              ? "To‘lovlar"
-              : "Mijoz ma’lumotlari"}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>
+            {paymentStep > 0
+              ? "Keyingi to‘lov"
+              : paymentsOnly
+                ? "To‘lovlar"
+                : "Mijoz ma’lumotlari"}
+          </Text>
+          {!paymentsOnly && paymentStep === 0 && locationPoint && (
+            <Pressable
+              style={styles.titleLocationButton}
+              onPress={() =>
+                void openCustomerLocation(
+                  locationPoint.latitude,
+                  locationPoint.longitude,
+                )
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Mijoz joylashuvini Yandex Mapsda ochish"
+            >
+              <SymbolView
+                name={{
+                  ios: "mappin.and.ellipse",
+                  android: "location_on",
+                  web: "location_on",
+                }}
+                size={23}
+                tintColor="#1677D2"
+              />
+            </Pressable>
+          )}
+        </View>
         {customer && !loading && paymentStep > 0 && (
           <>
             <Text style={styles.stepSubtitle}>
@@ -741,342 +779,360 @@ export default function CustomerDetailPage({
               <>
                 {!paymentsOnly && (
                   <>
-                <View style={styles.card}>
-                  <View style={styles.headingRow}>
-                    <Text style={styles.name}>{customer.name}</Text>
-                    <Text
-                      style={[
-                        styles.badge,
-                        customer.remainingBalance <= 0 && styles.badgePaid,
-                      ]}
-                    >
-                      {customer.remainingBalance > 0
-                        ? "Qarzi bor"
-                        : "To'langan"}
-                    </Text>
-                  </View>
-                  <Text style={styles.customerId}>
-                    Mijoz #{customer.mijoz_id}
-                  </Text>
-                  <BalancePanel customer={customer} />
-                  <Pressable
-                    style={[styles.submitPayment, styles.detailPaymentButton]}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/customers/payments",
-                        params: { mijoz_id },
-                      })
-                    }
-                    accessibilityRole="button"
-                    accessibilityLabel="To‘lovlarga o‘tish"
-                  >
-                    <Text style={styles.submitText}>To‘lovlarga o‘tish</Text>
-                  </Pressable>
-                  <View style={styles.quickActions}>
-                    <Pressable
-                      style={[styles.quickAction, styles.quickActionPrimary]}
-                      onPress={() =>
-                        void Linking.openURL(
-                          `tel:${customer.phoneNumber.replace(/[^\d+]/g, "")}`,
-                        ).catch(() =>
-                          setError("Telefon ilovasini ochib bo‘lmadi."),
-                        )
-                      }
-                      accessibilityRole="button"
-                      accessibilityLabel={`${customer.name}ga qo‘ng‘iroq qilish`}
-                    >
-                      <Text style={styles.quickActionPrimaryText}>
-                        Qo‘ng‘iroq
+                    <View style={styles.card}>
+                      <View style={styles.headingRow}>
+                        <Text style={styles.name}>{customer.name}</Text>
+                        <Text
+                          style={[
+                            styles.badge,
+                            customer.remainingBalance <= 0 && styles.badgePaid,
+                          ]}
+                        >
+                          {customer.remainingBalance > 0
+                            ? "Qarzi bor"
+                            : "To'langan"}
+                        </Text>
+                      </View>
+                      <Text style={styles.customerId}>
+                        Mijoz #{customer.mijoz_id}
                       </Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.quickAction}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/customers/contacts",
-                          params: { mijoz_id },
-                        })
-                      }
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.quickActionText}>Aloqa tarixi</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.quickAction}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/customers/edit",
-                          params: { mijoz_id },
-                        })
-                      }
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.quickActionText}>Tahrirlash</Text>
-                    </Pressable>
-                  </View>
-                  <Row label="Asosiy telefon" value={customer.phoneNumber} />
-                  {!!customer.addPhoneNumber && (
-                    <Row
-                      label="Qo'shimcha telefon"
-                      value={customer.addPhoneNumber}
-                    />
-                  )}
-                  <Row
-                    label="Yaratilgan sana"
-                    value={formatDate(customer.createdAt)}
-                  />
-                  {!!customer.address && (
-                    <Row label="Manzil" value={customer.address} />
-                  )}
-                </View>
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Savdo va nasiya</Text>
-                  <Row
-                    label="Mahsulot"
-                    value={detailNames?.product || customer.productName}
-                  />
-                  <Row
-                    label="Umumiy narx"
-                    value={formatMoney(customer.totalPrice)}
-                    words={formatMoneyWithUnits(customer.totalPrice, true)}
-                  />
-                  <Row
-                    label="Boshlang'ich to'lov"
-                    value={formatMoney(customer.downPayment)}
-                    words={formatMoneyWithUnits(customer.downPayment, true)}
-                  />
-                  <Row
-                    label="Jami to'langan"
-                    value={formatMoney(customer.totalPaid)}
-                    words={formatMoneyWithUnits(customer.totalPaid, true)}
-                  />
-                  <Row
-                    label="Qolgan qarz"
-                    value={formatMoney(customer.remainingBalance)}
-                    words={formatMoneyWithUnits(customer.remainingBalance, true)}
-                    emphasized
-                  />
-                  <Row
-                    label="Nasiya muddati"
-                    value={`${customer.termMonths} oy`}
-                  />
-                  {!!customer.description && (
-                    <Row label="Izoh" value={customer.description} />
-                  )}
-                </View>
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Hudud va ma’lumotlar</Text>
-                  <Row
-                    label="Hudud"
-                    value={detailNames?.region || unavailable}
-                  />
-                  {customer.lat !== null &&
-                    customer.long !== null &&
-                    Number.isFinite(customer.lat) &&
-                    Number.isFinite(customer.long) &&
-                    Math.abs(customer.lat) <= 90 &&
-                    Math.abs(customer.long) <= 180 && (
+                      <BalancePanel customer={customer} />
                       <Pressable
-                        style={styles.row}
+                        style={[
+                          styles.submitPayment,
+                          styles.detailPaymentButton,
+                        ]}
                         onPress={() =>
-                          void openCustomerLocation(
-                            customer.lat!,
-                            customer.long!,
-                          )
+                          router.push({
+                            pathname: "/customers/payments",
+                            params: { mijoz_id },
+                          })
                         }
                         accessibilityRole="button"
-                        accessibilityLabel="Joylashuvni Yandex Mapsda ochish"
+                        accessibilityLabel="To‘lovlarga o‘tish"
                       >
-                        <Text style={styles.rowLabel}>Joylashuv</Text>
-                        <View style={styles.locationValue}>
-                          <Text style={styles.locationLink}>Yandex’da ochish</Text>
-                          <Text
-                            style={styles.locationIcon}
-                            accessibilityElementsHidden
-                            importantForAccessibility="no"
-                          >
-                            📍
-                          </Text>
-                        </View>
+                        <Text style={styles.submitText}>
+                          To‘lovlarga o‘tish
+                        </Text>
                       </Pressable>
-                    )}
-                  {!!customer.groupId && (
-                    <Row
-                      label="Guruh"
-                      value={detailNames?.group || unavailable}
-                    />
-                  )}
-                  {!!customer.sectionId && (
-                    <Row
-                      label="Bo'lim"
-                      value={detailNames?.section || unavailable}
-                    />
-                  )}
-                  <Row
-                    label="Yaratgan xodim"
-                    value={`${detailNames?.users[customer.createdBy] || "Xodim nomi topilmadi"} · ${roleNames[customer.createdByRole]}`}
-                  />
-                  <Row
-                    label="Mas’ul xodim"
-                    value={
-                      customer.assignedTo
-                        ? detailNames?.users[customer.assignedTo] ||
+                      <View style={styles.quickActions}>
+                        <Pressable
+                          style={[
+                            styles.quickAction,
+                            styles.quickActionPrimary,
+                          ]}
+                          onPress={() =>
+                            void Linking.openURL(
+                              `tel:${customer.phoneNumber.replace(/[^\d+]/g, "")}`,
+                            ).catch(() =>
+                              setError("Telefon ilovasini ochib bo‘lmadi."),
+                            )
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel={`${customer.name}ga qo‘ng‘iroq qilish`}
+                        >
+                          <Text style={styles.quickActionPrimaryText}>
+                            Qo‘ng‘iroq
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.quickAction}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/customers/contacts",
+                              params: { mijoz_id },
+                            })
+                          }
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.quickActionText}>
+                            Aloqa tarixi
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.quickAction}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/customers/edit",
+                              params: { mijoz_id },
+                            })
+                          }
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.quickActionText}>Tahrirlash</Text>
+                        </Pressable>
+                      </View>
+                      <Row
+                        label="Asosiy telefon"
+                        value={customer.phoneNumber}
+                      />
+                      {!!customer.addPhoneNumber && (
+                        <Row
+                          label="Qo'shimcha telefon"
+                          value={customer.addPhoneNumber}
+                        />
+                      )}
+                      <Row
+                        label="Yaratilgan sana"
+                        value={formatDate(customer.createdAt)}
+                      />
+                      {!!customer.address && (
+                        <Row label="Manzil" value={customer.address} />
+                      )}
+                    </View>
+                    <View style={styles.card}>
+                      <Text style={styles.sectionTitle}>Savdo va nasiya</Text>
+                      <Row
+                        label="Mahsulot"
+                        value={detailNames?.product || customer.productName}
+                      />
+                      <Row
+                        label="Umumiy narx"
+                        value={formatMoney(customer.totalPrice)}
+                        words={formatMoneyWithUnits(customer.totalPrice, true)}
+                      />
+                      <Row
+                        label="Boshlang'ich to'lov"
+                        value={formatMoney(customer.downPayment)}
+                        words={formatMoneyWithUnits(customer.downPayment, true)}
+                      />
+                      <Row
+                        label="Jami to'langan"
+                        value={formatMoney(customer.totalPaid)}
+                        words={formatMoneyWithUnits(customer.totalPaid, true)}
+                      />
+                      <Row
+                        label="Qolgan qarz"
+                        value={formatMoney(customer.remainingBalance)}
+                        words={formatMoneyWithUnits(
+                          customer.remainingBalance,
+                          true,
+                        )}
+                        emphasized
+                      />
+                      <Row
+                        label="Nasiya muddati"
+                        value={`${customer.termMonths} oy`}
+                      />
+                      {!!customer.description && (
+                        <Row label="Izoh" value={customer.description} />
+                      )}
+                    </View>
+                    <View style={styles.card}>
+                      <Text style={styles.sectionTitle}>
+                        Hudud va ma’lumotlar
+                      </Text>
+                      <Row
+                        label="Hudud"
+                        value={detailNames?.region || unavailable}
+                      />
+                      {locationPoint && (
+                        <Pressable
+                          style={styles.row}
+                          onPress={() =>
+                            void openCustomerLocation(
+                              locationPoint.latitude,
+                              locationPoint.longitude,
+                            )
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel="Joylashuvni Yandex Mapsda ochish"
+                        >
+                          <Text style={styles.rowLabel}>Joylashuv</Text>
+                          <View style={styles.locationValue}>
+                            <Text style={styles.locationLink}>
+                              Yandex’da ochish
+                            </Text>
+                            <Text
+                              style={styles.locationIcon}
+                              accessibilityElementsHidden
+                              importantForAccessibility="no"
+                            >
+                              📍
+                            </Text>
+                          </View>
+                        </Pressable>
+                      )}
+                      {!!customer.groupId && (
+                        <Row
+                          label="Guruh"
+                          value={detailNames?.group || unavailable}
+                        />
+                      )}
+                      {!!customer.sectionId && (
+                        <Row
+                          label="Bo'lim"
+                          value={detailNames?.section || unavailable}
+                        />
+                      )}
+                      <Row
+                        label="Yaratgan xodim"
+                        value={`${detailNames?.users[customer.createdBy] || "Xodim nomi topilmadi"} · ${roleNames[customer.createdByRole]}`}
+                      />
+                      <Row
+                        label="Mas’ul xodim"
+                        value={
                           customer.assignedTo
-                        : "Biriktirilmagan"
-                    }
-                  />
-                </View>
+                            ? detailNames?.users[customer.assignedTo] ||
+                              customer.assignedTo
+                            : "Biriktirilmagan"
+                        }
+                      />
+                    </View>
                   </>
                 )}
                 {paymentsOnly && (
                   <>
                     <View style={styles.card}>
                       <Text style={styles.name}>{customer.name}</Text>
-                      <Text style={styles.customerId}>Mijoz #{customer.mijoz_id}</Text>
+                      <Text style={styles.customerId}>
+                        Mijoz #{customer.mijoz_id}
+                      </Text>
                       <BalancePanel customer={customer} />
                     </View>
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>
-                    To‘lovlar ({activePayments})
-                  </Text>
-                  {customer.payments.length > activePayments && (
-                    <Text style={styles.muted}>
-                      Bekor qilingan:{" "}
-                      {customer.payments.length - activePayments}
-                    </Text>
-                  )}
-                  {customer.payments.length === 0 && (
-                    <Text style={styles.muted}>To‘lovlar yo‘q.</Text>
-                  )}
-                  {customer.payments.map((payment) => (
-                    <View
-                      key={payment.paymentId || payment.id}
-                      style={[
-                        styles.payment,
-                        payment.status === "voided" && styles.voidedPayment,
-                      ]}
-                    >
-                      <View style={styles.headingRow}>
-                        <View style={styles.paymentAmountGroup}>
-                          <Text
-                            style={[
-                              styles.paymentAmount,
-                              payment.status === "voided" && styles.voidedAmount,
-                            ]}
-                          >
-                            {formatMoney(payment.amount)}
-                          </Text>
-                          <Text style={styles.paymentWords}>
-                            {formatMoneyWithUnits(payment.amount, true)}
-                          </Text>
-                        </View>
-                        <Text
+                    <View style={styles.card}>
+                      <Text style={styles.sectionTitle}>
+                        To‘lovlar ({activePayments})
+                      </Text>
+                      {customer.payments.length > activePayments && (
+                        <Text style={styles.muted}>
+                          Bekor qilingan:{" "}
+                          {customer.payments.length - activePayments}
+                        </Text>
+                      )}
+                      {customer.payments.length === 0 && (
+                        <Text style={styles.muted}>To‘lovlar yo‘q.</Text>
+                      )}
+                      {customer.payments.map((payment) => (
+                        <View
+                          key={payment.paymentId || payment.id}
                           style={[
-                            styles.paymentStatus,
-                            payment.status === "voided"
-                              ? styles.statusVoided
-                              : styles.statusActive,
+                            styles.payment,
+                            payment.status === "voided" && styles.voidedPayment,
                           ]}
                         >
-                          {payment.status === "voided"
-                            ? "Bekor qilingan"
-                            : "Faol"}
-                        </Text>
-                      </View>
-                      <Row
-                        label="Turi"
-                        value={
-                          payment.type === "initial"
-                            ? "Boshlang‘ich"
-                            : "Keyingi to‘lov"
-                        }
-                      />
-                      <Row
-                        label="Usul"
-                        value={
-                          payment.method === "payment_app"
-                            ? "O‘tkazma"
-                            : paymentOptions.options?.methods.find(
-                                (item) => item.id === payment.method,
-                              )?.label || methods[payment.method]
-                        }
-                      />
-                      {!!payment.cardLast4 && (
-                        <Row
-                          label="Karta"
-                          value={`•••• ${payment.cardLast4}`}
-                        />
-                      )}
-                      {!!payment.provider && (
-                        <Row
-                          label="Ilova"
-                          value={
-                            payment.providerName ||
-                            paymentOptions.options?.providers.find(
-                              (item) => item.id === payment.provider,
-                            )?.label ||
-                            payment.provider
-                          }
-                        />
-                      )}
-                      {!!payment.forMonth && (
-                        <Row
-                          label="Qaysi oy uchun"
-                          value={formatPaymentMonth(payment.forMonth)}
-                        />
-                      )}
-                      <Row
-                        label="Qabul qilingan sana"
-                        value={formatDate(payment.paidAt)}
-                      />
-                      <Row
-                        label="Qabul qilgan"
-                        value={
-                          detailNames?.users[payment.receivedBy] ||
-                          "Xodim nomi topilmadi"
-                        }
-                      />
-                      {payment.status === "voided" ? (
-                        <>
-                          {!!payment.voidedAt && (
+                          <View style={styles.headingRow}>
+                            <View style={styles.paymentAmountGroup}>
+                              <Text
+                                style={[
+                                  styles.paymentAmount,
+                                  payment.status === "voided" &&
+                                    styles.voidedAmount,
+                                ]}
+                              >
+                                {formatMoney(payment.amount)}
+                              </Text>
+                              <Text style={styles.paymentWords}>
+                                {formatMoneyWithUnits(payment.amount, true)}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.paymentStatus,
+                                payment.status === "voided"
+                                  ? styles.statusVoided
+                                  : styles.statusActive,
+                              ]}
+                            >
+                              {payment.status === "voided"
+                                ? "Bekor qilingan"
+                                : "Faol"}
+                            </Text>
+                          </View>
+                          <Row
+                            label="Turi"
+                            value={
+                              payment.type === "initial"
+                                ? "Boshlang‘ich"
+                                : "Keyingi to‘lov"
+                            }
+                          />
+                          <Row
+                            label="Usul"
+                            value={
+                              payment.method === "payment_app"
+                                ? "O‘tkazma"
+                                : paymentOptions.options?.methods.find(
+                                    (item) => item.id === payment.method,
+                                  )?.label || methods[payment.method]
+                            }
+                          />
+                          {!!payment.cardLast4 && (
                             <Row
-                              label="Bekor qilingan sana"
-                              value={formatDate(payment.voidedAt)}
+                              label="Karta"
+                              value={`•••• ${payment.cardLast4}`}
                             />
                           )}
-                          {!!payment.voidedBy && (
+                          {!!payment.provider && (
                             <Row
-                              label="Bekor qilgan"
+                              label="Ilova"
                               value={
-                                detailNames?.users[payment.voidedBy] ||
-                                payment.voidedBy
+                                payment.providerName ||
+                                paymentOptions.options?.providers.find(
+                                  (item) => item.id === payment.provider,
+                                )?.label ||
+                                payment.provider
                               }
                             />
                           )}
-                          {!!payment.voidReason && (
-                            <Row label="Sabab" value={payment.voidReason} />
+                          {!!payment.forMonth && (
+                            <Row
+                              label="Qaysi oy uchun"
+                              value={formatPaymentMonth(payment.forMonth)}
+                            />
                           )}
-                        </>
-                      ) : (
-                        isSuperAdmin && (
-                          <Pressable
-                            style={styles.voidButton}
-                            onPress={() => {
-                              setVoidPayment(payment);
-                              setVoidReason("");
-                              setVoidError("");
-                            }}
-                            accessibilityRole="button"
-                          >
-                            <Text style={styles.voidButtonText}>
-                              To‘lovni bekor qilish
-                            </Text>
-                          </Pressable>
-                        )
-                      )}
+                          <Row
+                            label="Qabul qilingan sana"
+                            value={formatDate(payment.paidAt)}
+                          />
+                          <Row
+                            label="Qabul qilgan"
+                            value={
+                              detailNames?.users[payment.receivedBy] ||
+                              "Xodim nomi topilmadi"
+                            }
+                          />
+                          {payment.status === "voided" ? (
+                            <>
+                              {!!payment.voidedAt && (
+                                <Row
+                                  label="Bekor qilingan sana"
+                                  value={formatDate(payment.voidedAt)}
+                                />
+                              )}
+                              {!!payment.voidedBy && (
+                                <Row
+                                  label="Bekor qilgan"
+                                  value={
+                                    detailNames?.users[payment.voidedBy] ||
+                                    payment.voidedBy
+                                  }
+                                />
+                              )}
+                              {!!payment.voidReason && (
+                                <Row label="Sabab" value={payment.voidReason} />
+                              )}
+                            </>
+                          ) : (
+                            isSuperAdmin && (
+                              <Pressable
+                                style={styles.voidButton}
+                                onPress={() => {
+                                  setVoidPayment(payment);
+                                  setVoidReason("");
+                                  setVoidError("");
+                                }}
+                                accessibilityRole="button"
+                              >
+                                <Text style={styles.voidButtonText}>
+                                  To‘lovni bekor qilish
+                                </Text>
+                              </Pressable>
+                            )
+                          )}
+                        </View>
+                      ))}
                     </View>
-                  ))}
-                </View>
                   </>
                 )}
                 {isSuperAdmin && (
@@ -1097,259 +1153,263 @@ export default function CustomerDetailPage({
                 )}
               </>
             )}
-            {paymentsOnly && paymentStep > 0 && customer.remainingBalance > 0 && (
-              <View style={styles.card}>
-                <Text style={styles.sectionTitle}>
-                  {paymentStep === 1
-                    ? "Oy va summa"
-                    : paymentStep === 2
-                      ? "Qanday to‘langan?"
-                      : "To‘lovni tekshirish"}
-                </Text>
-                {paymentStep === 1 && (
-                  <>
-                    <Text style={styles.muted}>
-                      Istalgan vaqtda, qolgan qarzgacha bo‘lgan summani
-                      to‘lashingiz mumkin.
-                    </Text>
-                    <Text style={styles.fieldLabel}>Qaysi oy uchun</Text>
-                    <View style={styles.monthOptions}>
-                      {monthRows.map((row, rowIndex) => (
-                        <View key={rowIndex} style={styles.monthRow}>
-                          {row.map((item) => (
-                            <Pressable
-                              key={item.value}
+            {paymentsOnly &&
+              paymentStep > 0 &&
+              customer.remainingBalance > 0 && (
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>
+                    {paymentStep === 1
+                      ? "Oy va summa"
+                      : paymentStep === 2
+                        ? "Qanday to‘langan?"
+                        : "To‘lovni tekshirish"}
+                  </Text>
+                  {paymentStep === 1 && (
+                    <>
+                      <Text style={styles.muted}>
+                        Istalgan vaqtda, qolgan qarzgacha bo‘lgan summani
+                        to‘lashingiz mumkin.
+                      </Text>
+                      <Text style={styles.fieldLabel}>Qaysi oy uchun</Text>
+                      <View style={styles.monthOptions}>
+                        {monthRows.map((row, rowIndex) => (
+                          <View key={rowIndex} style={styles.monthRow}>
+                            {row.map((item) => (
+                              <Pressable
+                                key={item.value}
+                                style={[
+                                  styles.methodButton,
+                                  styles.monthChoice,
+                                  forMonth === item.value &&
+                                    styles.methodSelected,
+                                ]}
+                                onPress={() => {
+                                  setForMonth(item.value);
+                                  setPaymentError("");
+                                }}
+                                accessibilityRole="radio"
+                                accessibilityState={{
+                                  selected: forMonth === item.value,
+                                }}
+                              >
+                                {item.value === availableMonths[0]?.value ? (
+                                  <Text style={styles.monthLabel}>
+                                    Bu oy uchun to‘lov
+                                  </Text>
+                                ) : (
+                                  <>
+                                    <Text
+                                      style={styles.monthLabel}
+                                      numberOfLines={1}
+                                    >
+                                      {item.label.split(" ")[0]}
+                                    </Text>
+                                    <Text style={styles.monthYear}>
+                                      {item.value.slice(0, 4)}
+                                    </Text>
+                                  </>
+                                )}
+                              </Pressable>
+                            ))}
+                            {Array.from(
+                              { length: 3 - row.length },
+                              (_, index) => (
+                                <View
+                                  key={`empty-${index}`}
+                                  style={styles.monthChoice}
+                                />
+                              ),
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                      <View style={styles.selectedMonth}>
+                        <Text style={styles.selectedMonthLabel}>
+                          Tanlangan oy
+                        </Text>
+                        <Text style={styles.selectedMonthValue}>
+                          {forMonth === availableMonths[0]?.value
+                            ? `Bu oy uchun to‘lov · ${formatPaymentMonth(forMonth)}`
+                            : formatPaymentMonth(forMonth)}
+                        </Text>
+                      </View>
+                      <View style={styles.amountHeading}>
+                        <Text style={[styles.fieldLabel, styles.amountLabel]}>
+                          Summa (so‘m)
+                        </Text>
+                        {monthlyPayment !== null && (
+                          <Text style={styles.monthlyHint}>
+                            Oylik to‘lov: {formatMoney(monthlyPayment)}
+                          </Text>
+                        )}
+                      </View>
+                      <MoneyInput
+                        value={amount}
+                        onChangeText={(value) => {
+                          setAmount(value);
+                          setPaymentError("");
+                        }}
+                        placeholder="To'lov summasi"
+                        editable={!savingPayment}
+                        tone={paymentError ? "error" : undefined}
+                        wordsStyle={
+                          amount && monthlyPayment !== null
+                            ? [
+                                styles.amountWords,
+                                Number(amount) < monthlyPayment
+                                  ? styles.amountWordsLow
+                                  : styles.amountWordsEnough,
+                              ]
+                            : undefined
+                        }
+                        wordsAccessory={
+                          paymentDifference !== null ? (
+                            <Text
                               style={[
-                                styles.methodButton,
-                                styles.monthChoice,
-                                forMonth === item.value &&
-                                  styles.methodSelected,
+                                styles.paymentDifference,
+                                paymentDifference < 0
+                                  ? styles.paymentDifferenceLow
+                                  : paymentDifference > 0
+                                    ? styles.paymentDifferenceHigh
+                                    : styles.paymentDifferenceEqual,
                               ]}
-                              onPress={() => {
-                                setForMonth(item.value);
-                                setPaymentError("");
-                              }}
-                              accessibilityRole="radio"
-                              accessibilityState={{
-                                selected: forMonth === item.value,
-                              }}
                             >
-                              {item.value === availableMonths[0]?.value ? (
-                                <Text style={styles.monthLabel}>
-                                  Bu oy uchun to‘lov
-                                </Text>
-                              ) : (
-                                <>
-                                  <Text
-                                    style={styles.monthLabel}
-                                    numberOfLines={1}
-                                  >
-                                    {item.label.split(" ")[0]}
-                                  </Text>
-                                  <Text style={styles.monthYear}>
-                                    {item.value.slice(0, 4)}
-                                  </Text>
-                                </>
-                              )}
-                            </Pressable>
-                          ))}
-                          {Array.from(
-                            { length: 3 - row.length },
-                            (_, index) => (
-                              <View
-                                key={`empty-${index}`}
-                                style={styles.monthChoice}
-                              />
+                              {paymentDifference === 0
+                                ? "Oylik to‘lovga teng"
+                                : `${formatMoneyWithUnits(Math.abs(paymentDifference))} ${paymentDifference < 0 ? "kam" : "ko‘p"} to‘layapti`}
+                            </Text>
+                          ) : undefined
+                        }
+                      />
+                    </>
+                  )}
+                  {paymentStep === 2 && (
+                    <>
+                      <Text style={styles.paymentMethodIntro}>
+                        To‘lov qanday qabul qilinganini tanlang.
+                      </Text>
+                      {paymentOptions.options ? (
+                        <PaymentMethodFields
+                          presentation="step"
+                          options={paymentOptions.options}
+                          method={method}
+                          onMethodChange={(value) => {
+                            setMethod(value);
+                            setPaymentError("");
+                          }}
+                          cardNumber={cardNumber}
+                          onCardNumberChange={(value) => {
+                            setCardNumber(value);
+                            setPaymentError("");
+                          }}
+                          provider={provider}
+                          onProviderChange={(value) => {
+                            setProvider(value);
+                            setPaymentError("");
+                          }}
+                          providerName={providerName}
+                          onProviderNameChange={(value) => {
+                            setProviderName(value);
+                            setPaymentError("");
+                          }}
+                          disabled={savingPayment}
+                        />
+                      ) : (
+                        <Pressable
+                          onPress={() => void paymentOptions.reload()}
+                          accessibilityRole="button"
+                        >
+                          <Text style={styles.link}>
+                            {paymentOptions.loading
+                              ? "To‘lov usullari yuklanmoqda..."
+                              : `${paymentOptions.error || "To‘lov usullari topilmadi."} Qayta yuklash`}
+                          </Text>
+                        </Pressable>
+                      )}
+                    </>
+                  )}
+                  {paymentStep === 3 && (
+                    <View style={styles.review}>
+                      <Text style={styles.reviewIntro}>
+                        Ma’lumotlarni tekshiring, so‘ng to‘lovni saqlang.
+                      </Text>
+                      <View style={styles.reviewAmount}>
+                        <Text style={styles.reviewAmountLabel}>
+                          TO‘LOV SUMMASI
+                        </Text>
+                        <Text style={styles.reviewAmountValue}>
+                          {formatMoney(parseMoney(amount) || 0)}
+                        </Text>
+                        <Text style={styles.reviewBalance}>
+                          To‘lovdan keyingi qoldiq:{" "}
+                          {formatMoney(
+                            Math.max(
+                              0,
+                              customer.remainingBalance -
+                                (parseMoney(amount) || 0),
                             ),
                           )}
-                        </View>
-                      ))}
-                    </View>
-                    <View style={styles.selectedMonth}>
-                      <Text style={styles.selectedMonthLabel}>
-                        Tanlangan oy
-                      </Text>
-                      <Text style={styles.selectedMonthValue}>
-                        {forMonth === availableMonths[0]?.value
-                          ? `Bu oy uchun to‘lov · ${formatPaymentMonth(forMonth)}`
-                          : formatPaymentMonth(forMonth)}
-                      </Text>
-                    </View>
-                    <View style={styles.amountHeading}>
-                      <Text style={[styles.fieldLabel, styles.amountLabel]}>
-                        Summa (so‘m)
-                      </Text>
-                      {monthlyPayment !== null && (
-                        <Text style={styles.monthlyHint}>
-                          Oylik to‘lov: {formatMoney(monthlyPayment)}
-                        </Text>
-                      )}
-                    </View>
-                    <MoneyInput
-                      value={amount}
-                      onChangeText={(value) => {
-                        setAmount(value);
-                        setPaymentError("");
-                      }}
-                      placeholder="To'lov summasi"
-                      editable={!savingPayment}
-                      tone={paymentError ? "error" : undefined}
-                      wordsStyle={
-                        amount && monthlyPayment !== null
-                          ? [
-                              styles.amountWords,
-                              Number(amount) < monthlyPayment
-                                ? styles.amountWordsLow
-                                : styles.amountWordsEnough,
-                            ]
-                          : undefined
-                      }
-                      wordsAccessory={
-                        paymentDifference !== null ? (
-                          <Text
-                            style={[
-                              styles.paymentDifference,
-                              paymentDifference < 0
-                                ? styles.paymentDifferenceLow
-                                : paymentDifference > 0
-                                  ? styles.paymentDifferenceHigh
-                                  : styles.paymentDifferenceEqual,
-                            ]}
-                          >
-                            {paymentDifference === 0
-                              ? "Oylik to‘lovga teng"
-                              : `${formatMoneyWithUnits(Math.abs(paymentDifference))} ${paymentDifference < 0 ? "kam" : "ko‘p"} to‘layapti`}
-                          </Text>
-                        ) : undefined
-                      }
-                    />
-                  </>
-                )}
-                {paymentStep === 2 && (
-                  <>
-                    <Text style={styles.paymentMethodIntro}>
-                      To‘lov qanday qabul qilinganini tanlang.
-                    </Text>
-                    {paymentOptions.options ? (
-                      <PaymentMethodFields
-                        presentation="step"
-                        options={paymentOptions.options}
-                        method={method}
-                        onMethodChange={(value) => {
-                          setMethod(value);
-                          setPaymentError("");
-                        }}
-                        cardNumber={cardNumber}
-                        onCardNumberChange={(value) => {
-                          setCardNumber(value);
-                          setPaymentError("");
-                        }}
-                        provider={provider}
-                        onProviderChange={(value) => {
-                          setProvider(value);
-                          setPaymentError("");
-                        }}
-                        providerName={providerName}
-                        onProviderNameChange={(value) => {
-                          setProviderName(value);
-                          setPaymentError("");
-                        }}
-                        disabled={savingPayment}
-                      />
-                    ) : (
-                      <Pressable
-                        onPress={() => void paymentOptions.reload()}
-                        accessibilityRole="button"
-                      >
-                        <Text style={styles.link}>
-                          {paymentOptions.loading
-                            ? "To‘lov usullari yuklanmoqda..."
-                            : `${paymentOptions.error || "To‘lov usullari topilmadi."} Qayta yuklash`}
-                        </Text>
-                      </Pressable>
-                    )}
-                  </>
-                )}
-                {paymentStep === 3 && (
-                  <View style={styles.review}>
-                    <Text style={styles.reviewIntro}>
-                      Ma’lumotlarni tekshiring, so‘ng to‘lovni saqlang.
-                    </Text>
-                    <View style={styles.reviewAmount}>
-                      <Text style={styles.reviewAmountLabel}>
-                        TO‘LOV SUMMASI
-                      </Text>
-                      <Text style={styles.reviewAmountValue}>
-                        {formatMoney(parseMoney(amount) || 0)}
-                      </Text>
-                      <Text style={styles.reviewBalance}>
-                        To‘lovdan keyingi qoldiq:{" "}
-                        {formatMoney(
-                          Math.max(
-                            0,
-                            customer.remainingBalance -
-                              (parseMoney(amount) || 0),
-                          ),
-                        )}
-                      </Text>
-                    </View>
-                    <View style={styles.reviewGroup}>
-                      <Text style={styles.reviewGroupTitle}>
-                        To‘lov tafsilotlari
-                      </Text>
-                      <Row label="Mijoz" value={customer.name} />
-                      <Row
-                        label="Qaysi oy uchun"
-                        value={formatPaymentMonth(forMonth)}
-                      />
-                    </View>
-                    <View style={styles.reviewMethod}>
-                      <View style={styles.reviewMethodIcon}>
-                        <Text style={styles.reviewMethodIconText}>
-                          {method === "cash" ? "💵" : "↗"}
                         </Text>
                       </View>
-                      <View style={styles.reviewMethodCopy}>
-                        <Text style={styles.reviewMethodLabel}>
-                          TO‘LOV USULI
+                      <View style={styles.reviewGroup}>
+                        <Text style={styles.reviewGroupTitle}>
+                          To‘lov tafsilotlari
                         </Text>
-                        <Text style={styles.reviewMethodValue}>
-                          {method === "cash" ? "Naqd" : "O‘tkazma"}
-                        </Text>
-                      </View>
-                    </View>
-                    {method === "payment_app" && (
-                      <View style={styles.reviewTransfer}>
-                        <View style={styles.reviewApp}>
-                          <ProviderIcon id={provider} />
-                          <View style={styles.reviewAppCopy}>
-                            <Text style={styles.reviewMethodLabel}>
-                              TO‘LOV ILOVASI
-                            </Text>
-                            <Text style={styles.reviewAppName}>
-                              {providerName ||
-                                paymentOptions.options?.providers.find(
-                                  (item) => item.id === provider,
-                                )?.label ||
-                                provider}
-                            </Text>
-                          </View>
-                        </View>
+                        <Row label="Mijoz" value={customer.name} />
                         <Row
-                          label="Pul yuborilgan karta"
-                          value={cardNumber.replace(/(.{4})/g, "$1 ").trim()}
+                          label="Qaysi oy uchun"
+                          value={formatPaymentMonth(forMonth)}
                         />
                       </View>
-                    )}
-                  </View>
-                )}
-                {!!paymentError && (
-                  <Text style={styles.error} accessibilityRole="alert">
-                    {paymentError}
-                  </Text>
-                )}
-              </View>
-            )}
+                      <View style={styles.reviewMethod}>
+                        {method === "cash" ? (
+                          <View style={styles.reviewMethodIcon}>
+                            <Text style={styles.reviewMethodIconText}>💵</Text>
+                          </View>
+                        ) : (
+                          <TransferMethodIcon size={42} />
+                        )}
+                        <View style={styles.reviewMethodCopy}>
+                          <Text style={styles.reviewMethodLabel}>
+                            TO‘LOV USULI
+                          </Text>
+                          <Text style={styles.reviewMethodValue}>
+                            {method === "cash" ? "Naqd" : "O‘tkazma"}
+                          </Text>
+                        </View>
+                      </View>
+                      {method === "payment_app" && (
+                        <View style={styles.reviewTransfer}>
+                          <View style={styles.reviewApp}>
+                            <ProviderIcon id={provider} />
+                            <View style={styles.reviewAppCopy}>
+                              <Text style={styles.reviewMethodLabel}>
+                                TO‘LOV ILOVASI
+                              </Text>
+                              <Text style={styles.reviewAppName}>
+                                {providerName ||
+                                  paymentOptions.options?.providers.find(
+                                    (item) => item.id === provider,
+                                  )?.label ||
+                                  provider}
+                              </Text>
+                            </View>
+                          </View>
+                          <Row
+                            label="Pul yuborilgan karta"
+                            value={cardNumber.replace(/(.{4})/g, "$1 ").trim()}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  )}
+                  {!!paymentError && (
+                    <Text style={styles.error} accessibilityRole="alert">
+                      {paymentError}
+                    </Text>
+                  )}
+                </View>
+              )}
           </>
         )}
       </ScrollView>
@@ -1364,7 +1424,8 @@ export default function CustomerDetailPage({
             style={[
               styles.submitPayment,
               styles.footerButton,
-              (savingPayment || (paymentStep === 0 && loading)) && styles.disabled,
+              (savingPayment || (paymentStep === 0 && loading)) &&
+                styles.disabled,
             ]}
             onPress={nextPaymentStep}
             disabled={savingPayment || (paymentStep === 0 && loading)}
@@ -1462,7 +1523,9 @@ function BalancePanel({ customer }: { customer: Customer }) {
   return (
     <View style={[styles.balancePanel, { backgroundColor: tone.background }]}>
       <Text style={styles.balanceLabel}>Qolgan qarz</Text>
-      <Text style={[styles.balanceValue, { color: tone.value }]}>{formatMoney(customer.remainingBalance)}</Text>
+      <Text style={[styles.balanceValue, { color: tone.value }]}>
+        {formatMoney(customer.remainingBalance)}
+      </Text>
       <Text style={styles.balanceWords}>
         {formatMoneyWithUnits(customer.remainingBalance, true)}
       </Text>
@@ -1472,7 +1535,12 @@ function BalancePanel({ customer }: { customer: Customer }) {
         accessibilityLabel="To‘langan ulush"
         accessibilityValue={{ min: 0, max: 100, now: paidPercent }}
       >
-        <View style={[styles.balanceFill, { width: `${paidPercent}%`, backgroundColor: tone.fill }]} />
+        <View
+          style={[
+            styles.balanceFill,
+            { width: `${paidPercent}%`, backgroundColor: tone.fill },
+          ]}
+        />
       </View>
       <View style={styles.balanceCaption}>
         <View style={styles.balancePaid}>
@@ -1486,8 +1554,12 @@ function BalancePanel({ customer }: { customer: Customer }) {
         <Text style={styles.balanceCaptionText}>{paidPercent}%</Text>
       </View>
       <View style={[styles.balanceTotal, { borderTopColor: tone.track }]}>
-        <Text style={styles.balanceTotalText}>Olingan narx: {formatMoney(customer.totalPrice)}</Text>
-        <Text style={styles.balanceTotalWords}>{formatMoneyWithUnits(customer.totalPrice, true)}</Text>
+        <Text style={styles.balanceTotalText}>
+          Sotilgan narx: {formatMoney(customer.totalPrice)}
+        </Text>
+        <Text style={styles.balanceTotalWords}>
+          {formatMoneyWithUnits(customer.totalPrice, true)}
+        </Text>
       </View>
     </View>
   );
@@ -1816,10 +1888,25 @@ const styles = StyleSheet.create({
   },
   link: { color: "#1677D2", fontSize: 15, fontWeight: "700" },
   title: {
+    flexShrink: 1,
     color: "#172536",
     fontSize: 27,
     fontWeight: "800",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
     marginBottom: 18,
+  },
+  titleLocationButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#EAF4FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   card: {
     backgroundColor: "#FFFFFF",
@@ -1856,7 +1943,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 3,
   },
-  balanceWords: { color: "#627184", fontSize: 13, lineHeight: 18, marginTop: 2, marginBottom: 14 },
+  balanceWords: {
+    color: "#627184",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+    marginBottom: 14,
+  },
   balanceTrack: {
     height: 8,
     borderRadius: 4,
@@ -1949,7 +2042,13 @@ const styles = StyleSheet.create({
     textAlign: "right",
     lineHeight: 20,
   },
-  rowWords: { color: "#627184", fontSize: 12, lineHeight: 17, textAlign: "right", marginTop: 2 },
+  rowWords: {
+    color: "#627184",
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "right",
+    marginTop: 2,
+  },
   emphasized: { color: "#C26A1A", fontWeight: "800" },
   payment: {
     borderTopWidth: 1,
@@ -1959,7 +2058,12 @@ const styles = StyleSheet.create({
   },
   paymentAmount: { color: "#172536", fontSize: 17, fontWeight: "800" },
   paymentAmountGroup: { flex: 1 },
-  paymentWords: { color: "#627184", fontSize: 12, lineHeight: 17, marginTop: 2 },
+  paymentWords: {
+    color: "#627184",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
   voidedPayment: { opacity: 0.8 },
   voidedAmount: { textDecorationLine: "line-through", color: "#627184" },
   paymentStatus: {

@@ -1,9 +1,9 @@
 import { BlurTargetView, BlurView } from "expo-blur";
 import { Image } from "expo-image";
-import { router, type Href } from "expo-router";
+import { router, useFocusEffect, type Href } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -15,7 +15,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { ApiError, apiRequest, type AuthResult, type User, type UserRole } from "./api";
+import { API_URL, ApiError, apiRequest, type AuthResult, type User, type UserRole } from "./api";
 import CatalogMenu from "./CatalogMenu";
 import LoadingMark from "./LoadingMark";
 import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
@@ -53,6 +53,17 @@ const roleAppearance: Record<UserRole, { label: string; icon: SymbolName; color:
 
 type HomeAction = { title: string; href: Href; icon: SymbolName };
 
+function avatarUri(avatarUrl: string | null, updatedAt: string | null) {
+  if (!avatarUrl) return null;
+  const url = /^https?:\/\//i.test(avatarUrl)
+    ? avatarUrl
+    : API_URL
+      ? `${API_URL}${avatarUrl.startsWith("/") ? "" : "/"}${avatarUrl}`
+      : null;
+  if (!url) return null;
+  return updatedAt ? `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(updatedAt)}` : url;
+}
+
 function VisibilityIcon({ visible }: { visible: boolean }) {
   return (
     <View style={styles.eyeIcon}>
@@ -77,6 +88,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [user, setUser] = useState<User | null>(null);
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+  const [dueCallCount, setDueCallCount] = useState<number | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const blurTargetRef = useRef<View | null>(null);
 
@@ -145,6 +158,49 @@ export default function App() {
     };
   }, []);
 
+  useFocusEffect(useCallback(() => {
+    if (!user || user.role === "product_creator") return;
+    let active = true;
+    async function loadDueCalls() {
+      try {
+        const token = await getStoredToken();
+        if (!token) return;
+        const result = await apiRequest<{ total: number }>("/contacts/call-list?status=due&page=1&limit=1", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (active) setDueCallCount(result.total);
+      } catch {
+        if (active) setDueCallCount(null);
+      }
+    }
+    void loadDueCalls();
+    return () => { active = false; };
+  }, [user]));
+
+  useFocusEffect(useCallback(() => {
+    if (!user?.id) return;
+    let active = true;
+    async function refreshProfile() {
+      try {
+        const token = await getStoredToken();
+        if (!token) return;
+        const result = await apiRequest<{ user: User }>("/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (active) setUser((current) => current?.id === result.user.id && (
+          current.avatarUrl !== result.user.avatarUrl ||
+          current.updatedAt !== result.user.updatedAt ||
+          current.name !== result.user.name ||
+          current.role !== result.user.role
+        ) ? result.user : current);
+      } catch {
+        // Keep the current profile visible if refreshing it fails.
+      }
+    }
+    void refreshProfile();
+    return () => { active = false; };
+  }, [user?.id]));
+
   async function signIn() {
     if (loading) return;
     const normalizedLogin = login.trim();
@@ -199,6 +255,7 @@ export default function App() {
     } finally {
       setConfirmSignOut(false);
       setUser(null);
+      setDueCallCount(null);
       setPassword("");
       setLogin(user?.login ?? login);
       setEditingLogin(false);
@@ -242,6 +299,8 @@ export default function App() {
     );
 
   if (user) {
+    const profileImage = avatarUri(user.avatarUrl, user.updatedAt);
+    const avatarKey = profileImage;
     const homeActions: HomeAction[] = [
       ...(user.role === "super_admin"
         ? [
@@ -287,26 +346,49 @@ export default function App() {
                 />
                 <Text style={styles.brand}>OsonNasiya</Text>
               </View>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.signOutIconButton,
-                  pressed && styles.signOutIconButtonPressed,
-                ]}
-                onPress={() => setConfirmSignOut(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Akkauntdan chiqish"
-              >
-                <SymbolView
-                  name={{ ios: "rectangle.portrait.and.arrow.right", android: "logout", web: "logout" }}
-                  tintColor="#C3333D"
-                  size={23}
-                />
-              </Pressable>
+              <View style={styles.headerActions}>
+                {user.role !== "product_creator" && <Pressable
+                  style={styles.callIconButton}
+                  onPress={() => router.push("/contacts")}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Aloqalar${dueCallCount !== null ? `, bugun va kechikkan ${dueCallCount} ta` : ""}`}
+                >
+                  <SymbolView name={{ ios: "phone.fill", android: "call", web: "call" }} tintColor="#1677D2" size={22} />
+                  {dueCallCount !== null && dueCallCount > 0 && <View style={styles.callBadge}>
+                    <Text style={styles.callBadgeText}>{dueCallCount > 99 ? "99+" : dueCallCount}</Text>
+                  </View>}
+                </Pressable>}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.signOutIconButton,
+                    pressed && styles.signOutIconButtonPressed,
+                  ]}
+                  onPress={() => setConfirmSignOut(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Akkauntdan chiqish"
+                >
+                  <SymbolView
+                    name={{ ios: "rectangle.portrait.and.arrow.right", android: "logout", web: "logout" }}
+                    tintColor="#C3333D"
+                    size={23}
+                  />
+                </Pressable>
+              </View>
             </View>
             <View style={styles.homeIntro}>
-              <View style={[styles.roleIcon, { backgroundColor: appearance.background }]}>
-                <SymbolView name={appearance.icon} tintColor={appearance.color} size={27} />
-              </View>
+              {profileImage && failedAvatar !== avatarKey ? (
+                <Image
+                  source={{ uri: profileImage }}
+                  style={styles.avatarImage}
+                  contentFit="cover"
+                  onError={() => setFailedAvatar(avatarKey)}
+                  accessibilityLabel={`${user.name || user.login} avatari`}
+                />
+              ) : (
+                <View style={[styles.roleIcon, { backgroundColor: appearance.background }]}>
+                  <SymbolView name={appearance.icon} tintColor={appearance.color} size={27} />
+                </View>
+              )}
               <View style={styles.homeIntroText}>
                 <Text style={styles.homeGreeting}>Salom, {user.name || user.login}</Text>
                 <Text style={styles.homeRole}>{appearance.label}</Text>
@@ -940,6 +1022,10 @@ const styles = StyleSheet.create({
   },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   brandLogo: { width: 34, height: 34 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  callIconButton: { width: 46, height: 46, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#E8F2FF", borderWidth: 1, borderColor: "#D2E6FF" },
+  callBadge: { position: "absolute", top: -7, right: -7, minWidth: 21, height: 21, paddingHorizontal: 4, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E23B48", borderWidth: 2, borderColor: "#F6F8FB" },
+  callBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   signOutIconButton: {
     width: 46,
     height: 46,
@@ -1005,6 +1091,7 @@ const styles = StyleSheet.create({
   signOutActionText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   homeIntro: { marginBottom: 35, flexDirection: "row", alignItems: "center", gap: 14 },
   roleIcon: { width: 54, height: 54, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  avatarImage: { width: 54, height: 54, borderRadius: 17, backgroundColor: "#E8F2FF" },
   homeIntroText: { flex: 1 },
   homeGreeting: { color: "#172536", fontSize: 25, fontWeight: "800" },
   homeRole: { color: "#627184", fontSize: 14, marginTop: 6 },

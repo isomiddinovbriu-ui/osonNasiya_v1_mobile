@@ -1,9 +1,13 @@
+import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, type User } from "./api";
+import CurrentLocationPreview from "./CurrentLocationPreview";
 import { formatMoney, type Customer } from "./customers";
+import FullScreenLoading from "./FullScreenLoading";
+import LocationPicker from "./LocationPicker";
 import { parseMoney } from "./money";
 import { deleteStoredToken, getStoredToken } from "./session";
 import StaffFilterPicker from "./StaffFilterPicker";
@@ -18,6 +22,59 @@ function Field({ label, value, onChangeText, keyboardType, maxLength }: {
   /></View>;
 }
 
+function phoneDigits(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return ((value.trim().startsWith("+998") || digits.length > 9) && digits.startsWith("998")
+    ? digits.slice(3) : digits).slice(0, 9);
+}
+
+function formatPhoneTail(value: string) {
+  return [
+    value.slice(0, 3),
+    value.length > 3 ? `-${value.slice(3, 5)}` : "",
+    value.length > 5 ? `-${value.slice(5, 7)}` : "",
+  ].join("");
+}
+
+function PhoneField({ label, value, onChangeText }: {
+  label: string; value: string; onChangeText: (value: string) => void;
+}) {
+  const areaRef = useRef<TextInput>(null);
+  const tailRef = useRef<TextInput>(null);
+  const area = value.slice(0, 2);
+  const tail = value.slice(2);
+
+  function changeArea(text: string) {
+    const digits = phoneDigits(text);
+    onChangeText(digits.length > 2 ? digits : digits.length === 2 ? digits + tail : digits);
+    if (digits.length >= 2) tailRef.current?.focus();
+  }
+
+  return <View style={styles.field}>
+    <Text style={styles.label}>{label}</Text>
+    <View style={styles.phoneInput}>
+      <Text style={styles.phonePrefix}>+998 (</Text>
+      <TextInput ref={areaRef} style={styles.phoneArea} value={area} onChangeText={changeArea}
+        placeholder="00" placeholderTextColor="#9AA6B5" keyboardType="phone-pad" autoCorrect={false}
+        accessibilityLabel={`${label}, operator kodi`} />
+      <Text style={styles.phonePrefix}>) </Text>
+      <TextInput ref={tailRef} style={styles.phoneEditable} value={formatPhoneTail(tail)}
+        onChangeText={(text) => {
+          const digits = phoneDigits(text);
+          onChangeText(digits.length > 7 ? digits : area + digits.slice(0, 7));
+        }}
+        onKeyPress={({ nativeEvent }) => {
+          if (nativeEvent.key === "Backspace" && !tail) {
+            areaRef.current?.focus();
+            onChangeText(area.slice(0, -1));
+          }
+        }}
+        placeholder="000-00-00" placeholderTextColor="#9AA6B5" keyboardType="phone-pad" autoCorrect={false}
+        accessibilityLabel={`${label}, qolgan yetti raqam`} />
+    </View>
+  </View>;
+}
+
 function coordinate(value: string, min: number, max: number) {
   const trimmed = value.trim().replace(",", ".");
   if (!/^-?\d+(?:\.\d+)?$/.test(trimmed)) return null;
@@ -26,8 +83,7 @@ function coordinate(value: string, min: number, max: number) {
 }
 
 function validPhone(value: string) {
-  return value.length <= 25 && /^[+\d\s()-]+$/.test(value) &&
-    value.replace(/\D/g, "").length >= 9 && value.replace(/\D/g, "").length <= 15;
+  return /^\d{9}$/.test(value);
 }
 
 export default function CustomerEditPage() {
@@ -38,6 +94,9 @@ export default function CustomerEditPage() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const [termsSaving, setTermsSaving] = useState(false);
   const [error, setError] = useState("");
   const [termsError, setTermsError] = useState("");
@@ -52,6 +111,9 @@ export default function CustomerEditPage() {
   const [totalPrice, setTotalPrice] = useState("");
   const [termMonths, setTermMonths] = useState("");
   const [reason, setReason] = useState("");
+  const latitude = coordinate(lat, -90, 90);
+  const longitude = coordinate(long, -180, 180);
+  const selectedPoint = latitude !== null && longitude !== null ? { latitude, longitude } : null;
 
   const expire = useCallback(async () => {
     await deleteStoredToken();
@@ -73,8 +135,8 @@ export default function CustomerEditPage() {
         if (!active) return;
         const item = detail.customer;
         setToken(stored); setCustomer(item); setIsSuperAdmin(session.user.role === "super_admin");
-        setName(item.name); setPhoneNumber(item.phoneNumber);
-        setAddPhoneNumber(item.addPhoneNumber ?? ""); setAddress(item.address ?? "");
+        setName(item.name); setPhoneNumber(phoneDigits(item.phoneNumber));
+        setAddPhoneNumber(phoneDigits(item.addPhoneNumber ?? "")); setAddress(item.address ?? "");
         setLat(item.lat?.toString() ?? ""); setLong(item.long?.toString() ?? "");
         setAssignedTo(item.assignedTo ?? "");
         setTotalPrice(String(item.totalPrice)); setTermMonths(String(item.termMonths));
@@ -87,20 +149,58 @@ export default function CustomerEditPage() {
     return () => { active = false; };
   }, [mijoz_id, expire]);
 
+  async function chooseCurrentLocation() {
+    if (locationBusy) return;
+    setLocationBusy(true); setLocationError("");
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        setLocationError("Joylashuvga ruxsat berilmadi. Xaritadan nuqtani tanlang.");
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude: currentLat, longitude: currentLong } = position.coords;
+      if (!Number.isFinite(currentLat) || !Number.isFinite(currentLong)) throw new Error("Joylashuv aniqlanmadi.");
+      setLat(currentLat.toFixed(6)); setLong(currentLong.toFixed(6));
+    } catch {
+      setLocationError("Joriy joylashuv olinmadi. Xaritadan nuqtani tanlang.");
+    } finally { setLocationBusy(false); }
+  }
+
+  async function openSelectedLocation(latitude: number, longitude: number) {
+    const point = `${longitude},${latitude}`;
+    try {
+      if (Platform.OS !== "web") {
+        try {
+          await Linking.openURL(`yandexmaps://maps.yandex.ru/?pt=${point}&z=17`);
+          return;
+        } catch {
+          // Open Yandex Maps in the browser when its app is unavailable.
+        }
+      }
+      await Linking.openURL(`https://yandex.ru/maps/?pt=${point}&z=17&l=map`);
+    } catch {
+      setLocationError("Yandex Maps ochilmadi. Qayta urinib ko‘ring.");
+    }
+  }
+
   async function saveDetails() {
     if (!customer || !token || saving) return;
     setError(""); setNotice("");
     const nextName = name.trim();
     const phone = phoneNumber.trim();
-    const extra = addPhoneNumber.trim() || null;
+    const extra = addPhoneNumber.trim();
     const nextAddress = address.trim() || null;
-    if (!nextName || nextName.length > 100 || !validPhone(phone) || (extra && !validPhone(extra)) || address.trim().length > 500) {
-      setError("Ism, telefon va manzilni to‘g‘ri kiriting."); return;
+    if (!nextName || nextName.length > 100 || address.trim().length > 500) {
+      setError("Ism va manzilni to‘g‘ri kiriting."); return;
+    }
+    if (!validPhone(phone) || (extra && !validPhone(extra))) {
+      setError("Telefon raqamlarini to‘liq kiriting (9 ta raqam)."); return;
     }
     const patch: Record<string, string | number | null> = {};
     if (nextName !== customer.name) patch.name = nextName;
-    if (phone !== customer.phoneNumber) patch.phoneNumber = phone;
-    if (extra !== customer.addPhoneNumber) patch.addPhoneNumber = extra;
+    if (`+998${phone}` !== customer.phoneNumber) patch.phoneNumber = `+998${phone}`;
+    if ((extra ? `+998${extra}` : null) !== customer.addPhoneNumber) patch.addPhoneNumber = extra ? `+998${extra}` : null;
     if (nextAddress !== customer.address) patch.address = nextAddress;
     if (lat.trim() !== (customer.lat?.toString() ?? "") || long.trim() !== (customer.long?.toString() ?? "")) {
       const latitude = coordinate(lat, -90, 90);
@@ -111,15 +211,17 @@ export default function CustomerEditPage() {
     if (isSuperAdmin && (assignedTo || null) !== customer.assignedTo) patch.assignedTo = assignedTo || null;
     if (!Object.keys(patch).length) { setNotice("O‘zgarish yo‘q."); return; }
     Keyboard.dismiss(); setSaving(true);
+    let saved = false;
     try {
-      const result = await apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}`, {
+      await apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}`, {
         method: "PATCH", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(patch),
       });
-      setCustomer(result.customer); setNotice("Mijoz ma’lumotlari saqlandi.");
+      saved = true;
+      router.replace({ pathname: "/customers/detail", params: { mijoz_id: String(customer.mijoz_id) } });
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) await expire();
       else setError(cause instanceof Error ? cause.message : "O‘zgarish saqlanmadi.");
-    } finally { setSaving(false); }
+    } finally { if (!saved) setSaving(false); }
   }
 
   async function saveTerms() {
@@ -136,18 +238,21 @@ export default function CustomerEditPage() {
     if (months !== customer.termMonths) patch.termMonths = months;
     if (Object.keys(patch).length === 1) { setTermsError("Narx yoki muddatni o‘zgartiring."); return; }
     Keyboard.dismiss(); setTermsSaving(true);
+    let saved = false;
     try {
-      const result = await apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}/terms`, {
+      await apiRequest<{ customer: Customer }>(`/customers/${mijoz_id}/terms`, {
         method: "PATCH", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(patch),
       });
-      setCustomer(result.customer); setReason(""); setNotice("Narx va muddat saqlandi.");
+      saved = true;
+      router.replace({ pathname: "/customers/detail", params: { mijoz_id: String(customer.mijoz_id) } });
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) await expire();
       else setTermsError(cause instanceof Error ? cause.message : "Shartlar saqlanmadi.");
-    } finally { setTermsSaving(false); }
+    } finally { if (!saved) setTermsSaving(false); }
   }
 
-  return <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+  return <FullScreenLoading active={saving || termsSaving} message={termsSaving ? "Narx va muddat saqlanmoqda..." : "Mijoz ma’lumotlari saqlanmoqda..."}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled">
       <Pressable onPress={() => router.back()} accessibilityRole="button"><Text style={styles.link}>‹ Mijozga qaytish</Text></Pressable>
       <Text style={styles.title}>Mijozni tuzatish</Text>
@@ -156,12 +261,26 @@ export default function CustomerEditPage() {
       {customer && <>
         <View style={styles.card}>
           <Field label="Ism" value={name} onChangeText={setName} maxLength={100} />
-          <Field label="Asosiy telefon" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" maxLength={25} />
-          <Field label="Qo‘shimcha telefon" value={addPhoneNumber} onChangeText={setAddPhoneNumber} keyboardType="phone-pad" maxLength={25} />
+          <PhoneField label="Asosiy telefon *" value={phoneNumber} onChangeText={setPhoneNumber} />
+          <PhoneField label="Qo‘shimcha telefon" value={addPhoneNumber} onChangeText={setAddPhoneNumber} />
           <Field label="Manzil" value={address} onChangeText={setAddress} maxLength={500} />
-          <View style={styles.row}>
-            <View style={styles.half}><Field label="Kenglik (lat)" value={lat} onChangeText={setLat} keyboardType="decimal-pad" /></View>
-            <View style={styles.half}><Field label="Uzunlik (long)" value={long} onChangeText={setLong} keyboardType="decimal-pad" /></View>
+          <View style={styles.locationSection}>
+            <Text style={styles.label}>Joylashuv</Text>
+            <Text style={styles.muted}>Mijoz manzilini xaritadan belgilang yoki joriy joylashuvni oling.</Text>
+            <Pressable style={styles.locationAction} onPress={() => { Keyboard.dismiss(); setLocationError(""); setMapOpen(true); }} accessibilityRole="button">
+              <Text style={styles.locationActionText}>Xaritadan belgilash</Text>
+            </Pressable>
+            <Pressable style={[styles.locationAction, locationBusy && styles.disabled]} onPress={() => void chooseCurrentLocation()} disabled={locationBusy} accessibilityRole="button">
+              <Text style={styles.locationActionText}>{locationBusy ? "Joylashuv olinmoqda..." : "Joriy joyni belgilash"}</Text>
+            </Pressable>
+            {!!locationError && <Text style={styles.error} accessibilityRole="alert">{locationError}</Text>}
+            {selectedPoint && <>
+              <Pressable style={styles.coordinateLink} onPress={() => void openSelectedLocation(selectedPoint.latitude, selectedPoint.longitude)}
+                accessibilityRole="button" accessibilityLabel="Tanlangan nuqtani Yandex Maps’da ochish">
+                <Text style={styles.coordinates}>Eski lokatsiyani Yandex Maps’da ochish</Text>
+              </Pressable>
+              <CurrentLocationPreview point={selectedPoint} />
+            </>}
           </View>
           {isSuperAdmin && token && <StaffFilterPicker token={token} value={assignedTo} onChange={setAssignedTo}
             onSessionExpired={expire} label="Mas’ul xodim" emptyLabel="Biriktirilmagan" allowedRoles={["sotuvchi", "yiguvchi"]} />}
@@ -184,7 +303,13 @@ export default function CustomerEditPage() {
       </>}
       {!loading && !customer && !!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
     </ScrollView>
-  </KeyboardAvoidingView>;
+    <LocationPicker visible={mapOpen} value={selectedPoint} onClose={() => setMapOpen(false)}
+      onSelect={(point) => {
+        setLat(point.latitude.toFixed(6)); setLong(point.longitude.toFixed(6));
+        setLocationError(""); setMapOpen(false);
+      }} />
+    </KeyboardAvoidingView>
+  </FullScreenLoading>;
 }
 
 const styles = StyleSheet.create({
@@ -196,7 +321,15 @@ const styles = StyleSheet.create({
   sectionTitle: { color: "#172536", fontSize: 18, fontWeight: "800" },
   field: { gap: 7 }, label: { color: "#172536", fontSize: 14, fontWeight: "700" },
   input: { minHeight: 48, borderWidth: 1, borderColor: "#D7DFE8", borderRadius: 11, paddingHorizontal: 12, color: "#172536", fontSize: 15 },
-  row: { flexDirection: "row", gap: 10 }, half: { flex: 1 },
+  phoneInput: { minHeight: 48, borderWidth: 1, borderColor: "#D7DFE8", borderRadius: 11, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", backgroundColor: "#FFFFFF" },
+  phonePrefix: { color: "#172536", fontSize: 15, fontWeight: "700" },
+  phoneArea: { width: 26, minHeight: 46, paddingVertical: 0, paddingHorizontal: 0, color: "#172536", fontSize: 15 },
+  phoneEditable: { flex: 1, minHeight: 46, paddingVertical: 0, color: "#172536", fontSize: 15 },
+  locationSection: { gap: 9 },
+  locationAction: { minHeight: 46, borderWidth: 1, borderColor: "#C9DDF1", borderRadius: 11, backgroundColor: "#EAF4FF", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  locationActionText: { color: "#1677D2", fontSize: 14, fontWeight: "700" },
+  coordinateLink: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center", paddingRight: 12 },
+  coordinates: { color: "#1677D2", fontSize: 12, fontWeight: "700" },
   button: { minHeight: 50, backgroundColor: "#1677D2", borderRadius: 11, alignItems: "center", justifyContent: "center", marginTop: 8 },
   buttonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   disabled: { opacity: 0.6 }, muted: { color: "#627184", fontSize: 14 },

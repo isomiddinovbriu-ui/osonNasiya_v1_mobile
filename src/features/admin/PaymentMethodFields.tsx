@@ -3,6 +3,7 @@ import { Image } from "expo-image";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PaymentMethod } from "./customers";
 import { PAYMENT_CARDS, type PaymentOptions } from "./paymentOptions";
+import TransferMethodIcon from "./TransferMethodIcon";
 
 type Props = {
   options: PaymentOptions;
@@ -102,13 +103,15 @@ export default function PaymentMethodFields({
             accessibilityRole="radio"
             accessibilityState={{ selected: method === item.id, disabled }}
           >
-            {isStep && (
+            {isStep && (item.id === "cash" ? (
               <View style={[styles.methodIcon, method === item.id && styles.methodIconSelected]}>
                 <Text style={[styles.methodIconText, method === item.id && styles.methodIconTextSelected]}>
-                  {item.id === "cash" ? "💵" : "↗"}
+                  💵
                 </Text>
               </View>
-            )}
+            ) : (
+              <TransferMethodIcon size={28} />
+            ))}
             <Text style={[styles.choiceText, isStep && styles.stepChoiceText, method === item.id && styles.selectedText]}>{item.label}</Text>
             {isStep && (
               <Text style={styles.methodDescription}>

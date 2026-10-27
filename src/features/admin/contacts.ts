@@ -25,3 +25,14 @@ export function validContactDate(value: string) {
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
+
+const monthNames = [
+  "yanvar", "fevral", "mart", "aprel", "may", "iyun",
+  "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr",
+];
+
+export function formatContactDay(value: string) {
+  if (!validContactDate(value)) return value;
+  const [year, month, day] = value.split("-").map(Number);
+  return `${year} yil ${day}-${monthNames[month - 1]}`;
+}
