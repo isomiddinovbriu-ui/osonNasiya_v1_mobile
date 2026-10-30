@@ -318,6 +318,12 @@ export default function App() {
       ...(user.role === "super_admin" || user.role === "yiguvchi"
         ? [{ title: "Ish ro‘yxati", href: "/collections" as Href, icon: { ios: "list.bullet.clipboard", android: "assignment", web: "assignment" } as const }]
         : []),
+      ...(user.role === "super_admin" || user.role === "yiguvchi"
+        ? [{ title: "Kunlik rejalar", href: "/daily-plans" as Href, icon: { ios: "calendar", android: "event_note", web: "event_note" } as const }]
+        : []),
+      ...(user.role === "super_admin"
+        ? [{ title: "Bekor qilish so‘rovlari", href: "/payment-void-requests" as Href, icon: { ios: "checkmark.shield", android: "fact_check", web: "fact_check" } as const }]
+        : []),
       { title: "Mijozlar", href: "/customers" as Href, icon: { ios: "person.2", android: "group", web: "group" } },
       ...(user.role !== "product_creator"
         ? [{ title: "Aloqalar", href: "/contacts" as Href, icon: { ios: "phone.arrow.up.right", android: "call", web: "call" } as const }]

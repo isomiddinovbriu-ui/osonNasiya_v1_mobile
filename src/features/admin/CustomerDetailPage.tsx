@@ -26,11 +26,11 @@ import {
   type CustomerPayment,
   type PaymentMethod,
 } from "./customers";
+import { type DailyPlan, getDailyPlans, isObjectId, tashkentToday } from "./dailyPlans";
 import LoadingMark from "./LoadingMark";
 import { formatMoneyWithUnits, parseMoney } from "./money";
 import MoneyInput from "./MoneyInput";
 import PaymentMethodFields, { ProviderIcon } from "./PaymentMethodFields";
-import TransferMethodIcon from "./TransferMethodIcon";
 import {
   paymentDetailsError,
   paymentExtraFields,
@@ -38,6 +38,7 @@ import {
 } from "./paymentOptions";
 import { PullRefreshControl } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken } from "./session";
+import TransferMethodIcon from "./TransferMethodIcon";
 
 const methods: Record<PaymentMethod, string> = {
   cash: "Naqd",
@@ -54,7 +55,7 @@ type DetailNames = {
   product: string;
   users: Record<string, string>;
 };
-type PaymentAttempt = { customerId: string; key: string; body: string };
+type PaymentAttempt = { path: string; key: string; body: string };
 const unavailable = "Ma’lumot topilmadi";
 const roleNames = {
   super_admin: "Super admin",
@@ -176,10 +177,20 @@ export default function CustomerDetailPage({
   paymentsOnly?: boolean;
 }) {
   const insets = useSafeAreaInsets();
-  const { mijoz_id } = useLocalSearchParams<{ mijoz_id: string }>();
+  const { mijoz_id, dailyPlanId } = useLocalSearchParams<{
+    mijoz_id: string;
+    dailyPlanId?: string;
+  }>();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [detailNames, setDetailNames] = useState<DetailNames | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [role, setRole] = useState<User["role"] | null>(null);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [ownedPlanIds, setOwnedPlanIds] = useState<string[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<DailyPlan | null>(null);
+  const [voidRequests, setVoidRequests] = useState<
+    Record<string, "pending" | "approved" | "rejected">
+  >({});
   const [voidPayment, setVoidPayment] = useState<CustomerPayment | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voidError, setVoidError] = useState("");
@@ -333,7 +344,28 @@ export default function CustomerDetailPage({
       ]);
       if (version !== loadVersion.current) return;
       setIsSuperAdmin(session.user.role === "super_admin");
+      setRole(session.user.role);
+      setCurrentUserId(session.user.id);
       setCustomer(result.customer);
+      if (paymentsOnly && dailyPlanId) {
+        if (!isObjectId(dailyPlanId)) throw new Error("Reja IDsi noto‘g‘ri.");
+        const detail = await apiRequest<{ plan: DailyPlan }>(`/daily-plans/${dailyPlanId}`, { headers });
+        if (version !== loadVersion.current) return;
+        setSelectedPlan(detail.plan);
+      } else setSelectedPlan(null);
+      if (paymentsOnly && session.user.role === "yiguvchi") {
+        const ownPlans = await getDailyPlans(token, `?regionId=${encodeURIComponent(result.customer.regionId)}`);
+        if (version !== loadVersion.current) return;
+        const owned = ownPlans.plans.map((item) => item.id);
+        setOwnedPlanIds(owned);
+        const entries = await Promise.all(result.customer.payments.filter((payment) => payment.dailyPlanId && (payment.receivedBy === session.user.id || owned.includes(payment.dailyPlanId))).map(async (payment) => {
+          const paymentId = payment.paymentId || payment.id;
+          const response = await apiRequest<{ requests: { status: "pending" | "approved" | "rejected" }[] }>(`/payments/${encodeURIComponent(paymentId)}/void-requests`, { headers }).catch(() => null);
+          return [paymentId, response?.requests[0]?.status] as const;
+        }));
+        if (version !== loadVersion.current) return;
+        setVoidRequests(Object.fromEntries(entries.filter((item): item is readonly [string, "pending" | "approved" | "rejected"] => !!item[1])));
+      }
       setPaymentNotice("");
       setLoading(false);
       const names = await resolveDetailNames(result.customer, token);
@@ -357,7 +389,7 @@ export default function CustomerDetailPage({
     } finally {
       if (version === loadVersion.current) setLoading(false);
     }
-  }, [mijoz_id, paymentsOnly]);
+  }, [mijoz_id, paymentsOnly, dailyPlanId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -374,10 +406,17 @@ export default function CustomerDetailPage({
   async function addPayment() {
     if (paymentRequestInFlight.current) return;
     if (!customer || !mijoz_id || !/^[1-9]\d*$/.test(mijoz_id)) return;
+    const paymentPath = dailyPlanId
+      ? `/daily-plans/${encodeURIComponent(dailyPlanId)}/customers/${mijoz_id}/payments`
+      : `/customers/${mijoz_id}/payments`;
     const pending =
-      paymentAttempt.current?.customerId === mijoz_id
+      paymentAttempt.current?.path === paymentPath
         ? paymentAttempt.current
         : null;
+    if (dailyPlanId && !pending && (!isObjectId(dailyPlanId) || selectedPlan?.id !== dailyPlanId || selectedPlan.regionId !== customer.regionId || selectedPlan.status !== "open" || selectedPlan.date !== tashkentToday())) {
+      setPaymentError("Bu mijoz uchun bugungi ochiq reja topilmadi. Rejani yangilang.");
+      return;
+    }
     let body = pending?.body;
     if (!pending) {
       const paymentAmount = parseMoney(amount);
@@ -424,7 +463,7 @@ export default function CustomerDetailPage({
         return;
       }
       const attempt = pending ?? {
-        customerId: mijoz_id,
+        path: paymentPath,
         key: randomUUID(),
         body: body!,
       };
@@ -433,7 +472,7 @@ export default function CustomerDetailPage({
         paymentId: string;
         payment: CustomerPayment;
         customer: Customer;
-      }>(`/customers/${mijoz_id}/payments`, {
+      }>(paymentPath, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -547,18 +586,20 @@ export default function CustomerDetailPage({
         router.replace("/");
         return;
       }
-      const result = await apiRequest<{
-        payment: CustomerPayment;
-        customer: Customer;
-      }>(
-        `/customers/${mijoz_id}/payments/${encodeURIComponent(paymentId)}/void`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+      if (voidPayment.dailyPlanId) {
+        await apiRequest(`/payments/${encodeURIComponent(paymentId)}/void-requests`, {
+          method: "POST", headers: { Authorization: `Bearer ${token}` },
           body: JSON.stringify({ reason }),
-        },
-      );
-      setCustomer(result.customer);
+        });
+        setVoidRequests((current) => ({ ...current, [paymentId]: "pending" }));
+        setPaymentNotice("Bekor qilish so‘rovi adminga yuborildi.");
+      } else {
+        const result = await apiRequest<{ payment: CustomerPayment; customer: Customer }>(
+          `/customers/${mijoz_id}/payments/${encodeURIComponent(paymentId)}/void`,
+          { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ reason }) },
+        );
+        setCustomer(result.customer);
+      }
       setVoidPayment(null);
       setVoidReason("");
     } catch (cause) {
@@ -568,7 +609,9 @@ export default function CustomerDetailPage({
       } else {
         setVoidError(
           cause instanceof ApiError && cause.status === 409
-            ? "Bu to‘lov allaqachon bekor qilingan. Ma’lumotlarni yangilang."
+            ? voidPayment.dailyPlanId
+              ? "Bu to‘lov uchun ochiq so‘rov bor yoki to‘lov allaqachon bekor qilingan."
+              : "Bu to‘lov allaqachon bekor qilingan. Ma’lumotlarni yangilang."
             : cause instanceof Error
               ? cause.message
               : "To‘lov bekor qilinmadi.",
@@ -597,6 +640,7 @@ export default function CustomerDetailPage({
     Math.abs(customer.long) <= 180
       ? { latitude: customer.lat, longitude: customer.long }
       : null;
+  const planReady = !dailyPlanId || (selectedPlan?.id === dailyPlanId && selectedPlan.status === "open" && selectedPlan.date === tashkentToday() && selectedPlan.regionId === customer?.regionId);
 
   return (
     <View style={styles.screen}>
@@ -773,6 +817,11 @@ export default function CustomerDetailPage({
             <Text style={styles.muted}>{paymentNotice}</Text>
           </View>
         )}
+        {paymentsOnly && !!dailyPlanId && <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Kunlik reja orqali to‘lov</Text>
+          <Text style={styles.muted}>{selectedPlan ? `${selectedPlan.date} · ${selectedPlan.status === "open" ? "Ochiq" : "Yopiq"}` : "Reja yuklanmoqda..."}</Text>
+          {!planReady && !loading && <Text style={styles.error}>To‘lov uchun bugungi ochiq va mijoz hududiga mos reja kerak.</Text>}
+        </View>}
         {customer && (
           <>
             {paymentStep === 0 && (
@@ -990,7 +1039,7 @@ export default function CustomerDetailPage({
                       </Text>
                       <BalancePanel customer={customer} />
                     </View>
-                    <View style={styles.card}>
+                    <View style={styles.paymentSection}>
                       <Text style={styles.sectionTitle}>
                         To‘lovlar ({activePayments})
                       </Text>
@@ -1001,16 +1050,20 @@ export default function CustomerDetailPage({
                         </Text>
                       )}
                       {customer.payments.length === 0 && (
-                        <Text style={styles.muted}>To‘lovlar yo‘q.</Text>
+                        <View style={styles.card}>
+                          <Text style={styles.muted}>To‘lovlar yo‘q.</Text>
+                        </View>
                       )}
-                      {customer.payments.map((payment) => (
-                        <View
-                          key={payment.paymentId || payment.id}
-                          style={[
-                            styles.payment,
-                            payment.status === "voided" && styles.voidedPayment,
-                          ]}
-                        >
+                      {customer.payments.map((payment, index) => (
+                        <View key={payment.paymentId || payment.id}>
+                          {index > 0 && <View style={styles.paymentDivider} />}
+                          <View
+                            style={[
+                              styles.card,
+                              styles.paymentCard,
+                              payment.status === "voided" && styles.voidedPayment,
+                            ]}
+                          >
                           <View style={styles.headingRow}>
                             <View style={styles.paymentAmountGroup}>
                               <Text
@@ -1092,6 +1145,10 @@ export default function CustomerDetailPage({
                               "Xodim nomi topilmadi"
                             }
                           />
+                          {!!voidRequests[payment.paymentId || payment.id] && <Row
+                            label="Bekor qilish so‘rovi"
+                            value={{ pending: "Ko‘rib chiqilmoqda", approved: "Tasdiqlangan", rejected: "Rad etilgan" }[voidRequests[payment.paymentId || payment.id]]}
+                          />}
                           {payment.status === "voided" ? (
                             <>
                               {!!payment.voidedAt && (
@@ -1114,9 +1171,10 @@ export default function CustomerDetailPage({
                               )}
                             </>
                           ) : (
-                            isSuperAdmin && (
+                            ((isSuperAdmin && !payment.dailyPlanId) || (role === "yiguvchi" && !!payment.dailyPlanId && (payment.receivedBy === currentUserId || ownedPlanIds.includes(payment.dailyPlanId)))) && (
                               <Pressable
                                 style={styles.voidButton}
+                                disabled={voidRequests[payment.paymentId || payment.id] === "pending"}
                                 onPress={() => {
                                   setVoidPayment(payment);
                                   setVoidReason("");
@@ -1125,11 +1183,12 @@ export default function CustomerDetailPage({
                                 accessibilityRole="button"
                               >
                                 <Text style={styles.voidButtonText}>
-                                  To‘lovni bekor qilish
+                                  {voidRequests[payment.paymentId || payment.id] === "pending" ? "So‘rov ko‘rib chiqilmoqda" : payment.dailyPlanId ? "Bekor qilish so‘rovi" : "To‘lovni bekor qilish"}
                                 </Text>
                               </Pressable>
                             )
                           )}
+                          </View>
                         </View>
                       ))}
                     </View>
@@ -1424,11 +1483,11 @@ export default function CustomerDetailPage({
             style={[
               styles.submitPayment,
               styles.footerButton,
-              (savingPayment || (paymentStep === 0 && loading)) &&
+              (savingPayment || (!planReady && !retryPayment) || (paymentStep === 0 && loading)) &&
                 styles.disabled,
             ]}
             onPress={nextPaymentStep}
-            disabled={savingPayment || (paymentStep === 0 && loading)}
+            disabled={savingPayment || (!planReady && !retryPayment) || (paymentStep === 0 && loading)}
             accessibilityRole="button"
           >
             <Text style={styles.submitText}>
@@ -1460,16 +1519,15 @@ export default function CustomerDetailPage({
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>To‘lovni bekor qilish</Text>
+              <Text style={styles.modalTitle}>{voidPayment?.dailyPlanId ? "Bekor qilish so‘rovi" : "To‘lovni bekor qilish"}</Text>
               <Text style={styles.modalDescription}>
                 {voidPayment
                   ? `${formatMoney(voidPayment.amount)} · ${voidPayment.paymentId || voidPayment.id}`
                   : ""}
               </Text>
-              <Text style={styles.modalDescription}>
-                Bu amal mijozning to‘langan summasini kamaytiradi va qolgan
-                qarzini oshiradi.
-              </Text>
+              <Text style={styles.modalDescription}>{voidPayment?.dailyPlanId
+                ? "So‘rov superadmin tasdiqlagach to‘lov bekor qilinadi."
+                : "Bu amal mijozning to‘langan summasini kamaytiradi va qolgan qarzini oshiradi."}</Text>
               <TextInput
                 style={styles.reasonInput}
                 value={voidReason}
@@ -1506,7 +1564,7 @@ export default function CustomerDetailPage({
                   accessibilityRole="button"
                 >
                   <Text style={styles.modalConfirmText}>
-                    {voidSaving ? "Bekor qilinmoqda..." : "Tasdiqlash"}
+                    {voidSaving ? "Yuborilmoqda..." : voidPayment?.dailyPlanId ? "So‘rov yuborish" : "Tasdiqlash"}
                   </Text>
                 </Pressable>
               </View>
@@ -2050,11 +2108,18 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   emphasized: { color: "#C26A1A", fontWeight: "800" },
-  payment: {
-    borderTopWidth: 1,
-    borderTopColor: "#E8EDF3",
-    marginTop: 12,
-    paddingTop: 12,
+  paymentSection: { marginBottom: 2 },
+  paymentDivider: {
+    height: 2,
+    backgroundColor: "#C8D4E2",
+    marginVertical: 8,
+    marginHorizontal: 24,
+  },
+  paymentCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#1677D2",
+    marginTop: 8,
+    marginBottom: 0,
   },
   paymentAmount: { color: "#172536", fontSize: 17, fontWeight: "800" },
   paymentAmountGroup: { flex: 1 },
@@ -2064,7 +2129,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 2,
   },
-  voidedPayment: { opacity: 0.8 },
+  voidedPayment: { borderLeftColor: "#A6B1BE", opacity: 0.8 },
   voidedAmount: { textDecorationLine: "line-through", color: "#627184" },
   paymentStatus: {
     fontSize: 12,

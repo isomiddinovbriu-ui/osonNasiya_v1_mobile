@@ -1036,13 +1036,21 @@ export default function StaffManagement({
                 />
                 <Pressable
                   onPress={() => setShowPassword((current) => !current)}
+                  style={styles.passwordVisibilityButton}
+                  accessibilityRole="button"
                   accessibilityLabel={
                     showPassword ? "Parolni yashirish" : "Parolni ko'rsatish"
                   }
                 >
-                  <Text style={styles.showText}>
-                    {showPassword ? "Yashirish" : "Ko'rsatish"}
-                  </Text>
+                  <SymbolView
+                    name={
+                      showPassword
+                        ? { ios: "eye.slash", android: "visibility_off", web: "visibility_off" }
+                        : { ios: "eye", android: "visibility", web: "visibility" }
+                    }
+                    size={22}
+                    tintColor="#1677D2"
+                  />
                 </Pressable>
               </View>
 
@@ -1368,11 +1376,11 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   passwordInput: { flex: 1, height: "100%", color: "#172536", fontSize: 16 },
-  showText: {
-    color: "#1677D2",
-    fontSize: 13,
-    fontWeight: "700",
-    paddingLeft: 8,
+  passwordVisibilityButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
   roles: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   roleButton: {

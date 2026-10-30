@@ -1,6 +1,7 @@
 export type CustomerPayment = {
   id: string;
   paymentId: string;
+  dailyPlanId?: string | null;
   type: "initial" | "installment";
   amount: number;
   method: PaymentMethod;
