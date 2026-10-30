@@ -9,7 +9,7 @@ import { deleteStoredToken, getStoredToken } from "./session";
 
 type AuditEntry = {
   id?: string;
-  action: "customer.created" | "customer.updated" | "customer.terms_updated" | "payment.created" | "payment.voided";
+  action: "customer.created" | "customer.updated" | "customer.terms_updated" | "payment.created" | "payment.updated" | "payment.voided";
   entityType: string;
   entityId: string | number;
   mijoz_id: number;
@@ -29,6 +29,7 @@ const actionNames: Record<AuditEntry["action"], string> = {
   "customer.updated": "Mijoz tuzatildi",
   "customer.terms_updated": "Narx va muddat tuzatildi",
   "payment.created": "To‘lov yaratildi",
+  "payment.updated": "To‘lov tahrirlandi",
   "payment.voided": "To‘lov bekor qilindi",
 };
 

@@ -36,15 +36,16 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   showQuickOptions?: boolean;
+  getToday?: () => string;
 };
 
-export default function ContactDatePicker({ label, value, onChange, showQuickOptions = false }: Props) {
+export default function ContactDatePicker({ label, value, onChange, showQuickOptions = false, getToday = localDateString }: Props) {
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const [today, setToday] = useState(localDateString);
+  const [today, setToday] = useState(getToday);
 
   function show() {
-    const current = localDateString();
+    const current = getToday();
     const initial = value && value >= current ? value : current;
     const [year, month] = initial.split("-").map(Number);
     setToday(current);
@@ -54,9 +55,9 @@ export default function ContactDatePicker({ label, value, onChange, showQuickOpt
 
   useEffect(() => {
     if (!open) return;
-    const timer = setInterval(() => setToday(localDateString()), 60_000);
+    const timer = setInterval(() => setToday(getToday()), 60_000);
     return () => clearInterval(timer);
-  }, [open]);
+  }, [open, getToday]);
 
   const year = viewMonth.getFullYear();
   const month = viewMonth.getMonth();
@@ -122,7 +123,7 @@ export default function ContactDatePicker({ label, value, onChange, showQuickOpt
               </Pressable>
             </View>;
           })}</View>
-          <Pressable style={styles.todayShortcut} onPress={() => { onChange(localDateString()); setOpen(false); }} accessibilityRole="button">
+          <Pressable style={styles.todayShortcut} onPress={() => { onChange(getToday()); setOpen(false); }} accessibilityRole="button">
             <Text style={styles.todayShortcutText}>Bugunni tanlash</Text>
           </Pressable>
         </View>

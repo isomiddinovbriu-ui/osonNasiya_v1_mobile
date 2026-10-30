@@ -4,6 +4,7 @@ export type CustomerPayment = {
   dailyPlanId?: string | null;
   type: "initial" | "installment";
   amount: number;
+  remainingBalanceAfter: number | null;
   method: PaymentMethod;
   receivedBy: string;
   paidAt: string;
@@ -14,6 +15,7 @@ export type CustomerPayment = {
   status: "active" | "voided";
   voidedAt: string | null;
   voidedBy: string | null;
+  voidedByName?: string | null;
   voidReason: string | null;
 };
 

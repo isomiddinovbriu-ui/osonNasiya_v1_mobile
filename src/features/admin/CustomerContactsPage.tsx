@@ -1,3 +1,4 @@
+import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -17,19 +18,26 @@ const noteExamples = {
 } as const;
 
 function ContactCard({ item }: { item: ContactEvent }) {
+  const promiseStatus = item.promiseStatus === "fulfilled" ? "Bajarildi" : item.promiseStatus === "broken" ? "Bajarilmadi" : "Kutilmoqda";
+
   return <View style={styles.card}>
     <View style={styles.historyHeading}>
       <Text style={[styles.statusBadge, item.outcome === "reached" ? styles.reachedBadge : styles.noAnswerBadge]}>{item.outcome === "reached" ? "Gaplashildi" : "Javob bermadi"}</Text>
-      <Text style={styles.historyDate}>{formatDate(item.contactedAt)}</Text>
     </View>
-    {!!item.note && <Text style={styles.body}>{item.note}</Text>}
-    {!!item.nextContactDate && <View style={styles.detailRow}><Text style={styles.detailLabel}>Keyingi aloqa</Text><Text style={styles.detailValue}>{formatContactDay(item.nextContactDate)}</Text></View>}
-    {!!item.promisedDate && <>
-      <View style={styles.detailRow}><Text style={styles.detailLabel}>To‘lov va’dasi</Text><Text style={styles.detailValue}>{formatMoney(item.promisedAmount ?? 0)}</Text></View>
-      <View style={styles.detailRow}><Text style={styles.detailLabel}>Va’da sanasi</Text><Text style={styles.detailValue}>{formatContactDay(item.promisedDate)}</Text></View>
-      <View style={styles.detailRow}><Text style={styles.detailLabel}>Holat</Text><Text style={styles.detailValue}>{item.promiseStatus === "fulfilled" ? "Bajarildi" : item.promiseStatus === "broken" ? "Bajarilmadi" : "Kutilmoqda"}</Text></View>
-      <Text style={styles.muted}>Hisoblangan to‘lov: {formatMoney(item.paidTowardPromise ?? 0)}</Text>
-    </>}
+    <Text style={styles.historyDate}>Aloqa qilingan: {formatDate(item.contactedAt)}</Text>
+    {!!item.note && <Text style={styles.contactNote}>{item.note}</Text>}
+    {!!item.nextContactDate && <View style={styles.nextContactBlock}>
+      <Text style={styles.blockLabel}>KEYINGI ALOQA</Text>
+      <Text style={styles.blockValue}>{formatContactDay(item.nextContactDate)}</Text>
+    </View>}
+    {!!item.promisedDate && <View style={styles.promiseBlock}>
+      <Text style={styles.blockLabel}>TO‘LOV VA’DASI</Text>
+      <Text style={styles.promiseAmount}>{formatMoney(item.promisedAmount ?? 0)}</Text>
+      <View style={styles.promiseDivider} />
+      <View style={styles.promiseRow}><Text style={styles.promiseLabel}>To‘lash sanasi</Text><Text style={styles.promiseValue}>{formatContactDay(item.promisedDate)}</Text></View>
+      <View style={styles.promiseRow}><Text style={styles.promiseLabel}>Va’da holati</Text><Text style={[styles.promiseValue, item.promiseStatus === "fulfilled" ? styles.fulfilledText : item.promiseStatus === "broken" ? styles.brokenText : styles.pendingText]}>{promiseStatus}</Text></View>
+      <View style={styles.promiseRow}><Text style={styles.promiseLabel}>Hisoblangan to‘lov</Text><Text style={styles.promiseValue}>{formatMoney(item.paidTowardPromise ?? 0)}</Text></View>
+    </View>}
   </View>;
 }
 
@@ -45,11 +53,19 @@ export default function CustomerContactsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
+  const [callError, setCallError] = useState("");
   const [outcome, setOutcome] = useState<"reached" | "no_answer">("reached");
   const [note, setNote] = useState("");
   const [nextContactDate, setNextContactDate] = useState("");
   const [promisedDate, setPromisedDate] = useState("");
   const [promisedAmount, setPromisedAmount] = useState("");
+
+  function callCustomer() {
+    if (!customer) return;
+    setCallError("");
+    void Linking.openURL(`tel:${customer.phoneNumber.replace(/[^\d+]/g, "")}`)
+      .catch(() => setCallError("Telefon ilovasini ochib bo‘lmadi."));
+  }
 
   const load = useCallback(async () => {
     if (!mijoz_id || !/^[1-9]\d*$/.test(mijoz_id)) { setError("Mijoz raqami noto‘g‘ri."); setLoading(false); return; }
@@ -116,8 +132,22 @@ export default function CustomerContactsPage() {
       <Text style={styles.title}>Aloqa tarixi</Text>
       {!!customer && <View style={styles.customerSummary}>
         <View style={styles.customerAvatar}><Text style={styles.customerInitial}>{customer.name.trim().charAt(0).toUpperCase() || "M"}</Text></View>
-        <View style={styles.customerCopy}><Text style={styles.customerName} numberOfLines={1}>{customer.name}</Text><Text style={styles.customerPhone}>{customer.phoneNumber}</Text></View>
+        <View style={styles.customerCopy}>
+          <Text style={styles.customerName} numberOfLines={1}>{customer.name}</Text>
+          <Pressable
+            onPress={callCustomer}
+            accessibilityRole="button"
+            accessibilityLabel={`${customer.phoneNumber} raqamiga qo‘ng‘iroq qilish`}
+            hitSlop={8}
+          >
+            <Text style={styles.customerPhone}>{customer.phoneNumber}</Text>
+          </Pressable>
+        </View>
+        <Pressable style={styles.callButton} onPress={callCustomer} accessibilityRole="button" accessibilityLabel={`${customer.name}ga qo‘ng‘iroq qilish`}>
+          <Text style={styles.callButtonText}>Qo‘ng‘iroq qilish</Text>
+        </Pressable>
       </View>}
+      {!!callError && <Text style={styles.error} accessibilityRole="alert">{callError}</Text>}
       {!!error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
       {customer && <View style={[styles.card, !formOpen && styles.collapsedCard]}>
         <Pressable style={styles.formToggle} onPress={() => { Keyboard.dismiss(); setFormOpen((open) => !open); }}
@@ -193,7 +223,9 @@ const styles = StyleSheet.create({
   customerInitial: { color: "#1677D2", fontSize: 17, fontWeight: "800" },
   customerCopy: { flex: 1, minWidth: 0 },
   customerName: { color: "#172536", fontSize: 15, fontWeight: "800" },
-  customerPhone: { color: "#627184", fontSize: 12, marginTop: 2 },
+  customerPhone: { color: "#1677D2", fontSize: 14, fontWeight: "700", marginTop: 4, textDecorationLine: "underline" },
+  callButton: { minHeight: 40, maxWidth: 128, paddingHorizontal: 10, borderRadius: 10, backgroundColor: "#1677D2", alignItems: "center", justifyContent: "center" },
+  callButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700", textAlign: "center" },
   sectionHeading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   sectionTitle: { color: "#172536", fontSize: 18, fontWeight: "800" },
   count: { color: "#1677D2", backgroundColor: "#EAF4FF", overflow: "hidden", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, fontSize: 12, fontWeight: "800" },
@@ -231,13 +263,23 @@ const styles = StyleSheet.create({
   emptyTitle: { color: "#172536", fontSize: 14, fontWeight: "800" },
   button: { minHeight: 48, backgroundColor: "#1677D2", borderRadius: 11, alignItems: "center", justifyContent: "center", marginTop: 4 },
   buttonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-  historyHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 },
+  historyHeading: { flexDirection: "row", alignItems: "center" },
   statusBadge: { overflow: "hidden", borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5, fontSize: 12, fontWeight: "700" },
   reachedBadge: { color: "#16865A", backgroundColor: "#E8F7F0" },
   noAnswerBadge: { color: "#A65C18", backgroundColor: "#FFF2E4" },
-  historyDate: { color: "#627184", fontSize: 12 },
-  detailRow: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingTop: 4 },
-  detailLabel: { color: "#627184", fontSize: 12, flex: 1 },
-  detailValue: { color: "#172536", fontSize: 12, fontWeight: "700", flex: 1, textAlign: "right" },
+  historyDate: { color: "#627184", fontSize: 12, lineHeight: 18 },
+  contactNote: { color: "#172536", fontSize: 14, lineHeight: 20, marginTop: 4 },
+  nextContactBlock: { backgroundColor: "#EAF4FF", borderRadius: 11, padding: 12, gap: 4, marginTop: 4 },
+  promiseBlock: { backgroundColor: "#F6F8FB", borderRadius: 11, padding: 12, gap: 7, marginTop: 4 },
+  blockLabel: { color: "#627184", fontSize: 11, fontWeight: "800", letterSpacing: 0.6 },
+  blockValue: { color: "#172536", fontSize: 16, fontWeight: "800" },
+  promiseAmount: { color: "#172536", fontSize: 19, fontWeight: "800" },
+  promiseDivider: { height: 1, backgroundColor: "#DFE6EE", marginVertical: 2 },
+  promiseRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
+  promiseLabel: { color: "#627184", fontSize: 12, lineHeight: 18, flex: 1 },
+  promiseValue: { color: "#172536", fontSize: 12, lineHeight: 18, fontWeight: "700", flex: 1, textAlign: "right" },
+  fulfilledText: { color: "#16865A" },
+  brokenText: { color: "#B43E44" },
+  pendingText: { color: "#A65C18" },
   disabled: { opacity: 0.6 }, error: { color: "#C3333D", fontSize: 14 },
 });

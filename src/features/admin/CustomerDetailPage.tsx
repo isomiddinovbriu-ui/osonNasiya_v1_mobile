@@ -31,6 +31,7 @@ import LoadingMark from "./LoadingMark";
 import { formatMoneyWithUnits, parseMoney } from "./money";
 import MoneyInput from "./MoneyInput";
 import PaymentMethodFields, { ProviderIcon } from "./PaymentMethodFields";
+import PaymentEditModal from "./PaymentEditModal";
 import {
   paymentDetailsError,
   paymentExtraFields,
@@ -192,6 +193,8 @@ export default function CustomerDetailPage({
     Record<string, "pending" | "approved" | "rejected">
   >({});
   const [voidPayment, setVoidPayment] = useState<CustomerPayment | null>(null);
+  const [editPayment, setEditPayment] = useState<CustomerPayment | null>(null);
+  const voidNeedsApproval = !!voidPayment?.dailyPlanId && !isSuperAdmin;
   const [voidReason, setVoidReason] = useState("");
   const [voidError, setVoidError] = useState("");
   const [voidSaving, setVoidSaving] = useState(false);
@@ -212,6 +215,7 @@ export default function CustomerDetailPage({
   const [paymentStep, setPaymentStep] = useState<0 | 1 | 2 | 3>(0);
   const [furthestPaymentStep, setFurthestPaymentStep] = useState<1 | 2 | 3>(1);
   const scrollRef = useRef<ScrollView>(null);
+  const voidReasonInputRef = useRef<TextInput>(null);
   const paymentAttempt = useRef<PaymentAttempt | null>(null);
   const paymentRequestInFlight = useRef(false);
   const loadVersion = useRef(0);
@@ -541,6 +545,7 @@ export default function CustomerDetailPage({
 
   function closeVoid() {
     if (voidSaving) return;
+    Keyboard.dismiss();
     setVoidPayment(null);
     setVoidReason("");
     setVoidError("");
@@ -586,7 +591,7 @@ export default function CustomerDetailPage({
         router.replace("/");
         return;
       }
-      if (voidPayment.dailyPlanId) {
+      if (voidNeedsApproval) {
         await apiRequest(`/payments/${encodeURIComponent(paymentId)}/void-requests`, {
           method: "POST", headers: { Authorization: `Bearer ${token}` },
           body: JSON.stringify({ reason }),
@@ -608,13 +613,7 @@ export default function CustomerDetailPage({
         router.replace("/");
       } else {
         setVoidError(
-          cause instanceof ApiError && cause.status === 409
-            ? voidPayment.dailyPlanId
-              ? "Bu to‘lov uchun ochiq so‘rov bor yoki to‘lov allaqachon bekor qilingan."
-              : "Bu to‘lov allaqachon bekor qilingan. Ma’lumotlarni yangilang."
-            : cause instanceof Error
-              ? cause.message
-              : "To‘lov bekor qilinmadi.",
+          cause instanceof Error ? cause.message : "To‘lov bekor qilinmadi.",
         );
         if (cause instanceof ApiError && cause.status === 409) {
           // Keep the dialog open so the server's rejection remains visible.
@@ -1092,6 +1091,14 @@ export default function CustomerDetailPage({
                                 : "Faol"}
                             </Text>
                           </View>
+                          {payment.status === "active" &&
+                            payment.remainingBalanceAfter !== null &&
+                            payment.remainingBalanceAfter !== undefined && (
+                              <Row
+                                label="To‘lovdan keyin qolgan qarz"
+                                value={formatMoney(payment.remainingBalanceAfter)}
+                              />
+                            )}
                           <Row
                             label="Turi"
                             value={
@@ -1161,8 +1168,9 @@ export default function CustomerDetailPage({
                                 <Row
                                   label="Bekor qilgan"
                                   value={
+                                    payment.voidedByName ||
                                     detailNames?.users[payment.voidedBy] ||
-                                    payment.voidedBy
+                                    "Super admin nomi topilmadi"
                                   }
                                 />
                               )}
@@ -1171,22 +1179,29 @@ export default function CustomerDetailPage({
                               )}
                             </>
                           ) : (
-                            ((isSuperAdmin && !payment.dailyPlanId) || (role === "yiguvchi" && !!payment.dailyPlanId && (payment.receivedBy === currentUserId || ownedPlanIds.includes(payment.dailyPlanId)))) && (
-                              <Pressable
-                                style={styles.voidButton}
-                                disabled={voidRequests[payment.paymentId || payment.id] === "pending"}
-                                onPress={() => {
-                                  setVoidPayment(payment);
-                                  setVoidReason("");
-                                  setVoidError("");
-                                }}
-                                accessibilityRole="button"
-                              >
-                                <Text style={styles.voidButtonText}>
-                                  {voidRequests[payment.paymentId || payment.id] === "pending" ? "So‘rov ko‘rib chiqilmoqda" : payment.dailyPlanId ? "Bekor qilish so‘rovi" : "To‘lovni bekor qilish"}
-                                </Text>
-                              </Pressable>
-                            )
+                            <View style={styles.paymentActions}>
+                              {(isSuperAdmin || payment.receivedBy === currentUserId) && (
+                                <Pressable style={styles.editPaymentButton} onPress={() => setEditPayment(payment)} accessibilityRole="button">
+                                  <Text style={styles.editPaymentText}>To‘lovni tahrirlash</Text>
+                                </Pressable>
+                              )}
+                              {(isSuperAdmin || (role === "yiguvchi" && !!payment.dailyPlanId && (payment.receivedBy === currentUserId || ownedPlanIds.includes(payment.dailyPlanId)))) && (
+                                <Pressable
+                                  style={styles.voidButton}
+                                  disabled={voidRequests[payment.paymentId || payment.id] === "pending"}
+                                  onPress={() => {
+                                    setVoidPayment(payment);
+                                    setVoidReason("");
+                                    setVoidError("");
+                                  }}
+                                  accessibilityRole="button"
+                                >
+                                  <Text style={styles.voidButtonText}>
+                                    {voidRequests[payment.paymentId || payment.id] === "pending" ? "So‘rov ko‘rib chiqilmoqda" : payment.dailyPlanId && !isSuperAdmin ? "Bekor qilish so‘rovi" : "To‘lovni bekor qilish"}
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </View>
                           )}
                           </View>
                         </View>
@@ -1504,11 +1519,23 @@ export default function CustomerDetailPage({
           </Pressable>
         </View>
       )}
+      {editPayment && customer && paymentToken && <PaymentEditModal
+        key={editPayment.paymentId || editPayment.id}
+        customer={customer}
+        payment={editPayment}
+        token={paymentToken}
+        isSuperAdmin={isSuperAdmin}
+        options={paymentOptions.options}
+        onClose={() => setEditPayment(null)}
+        onSaved={(updated) => { setCustomer(updated); setEditPayment(null); }}
+        onConflict={() => { void load(); }}
+      />}
       <Modal
         visible={!!voidPayment}
         transparent
         animationType="fade"
         onRequestClose={closeVoid}
+        onShow={() => voidReasonInputRef.current?.focus()}
       >
         <KeyboardAvoidingView
           style={styles.modalBackdrop}
@@ -1516,19 +1543,21 @@ export default function CustomerDetailPage({
         >
           <ScrollView
             contentContainerStyle={styles.modalScroll}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
           >
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{voidPayment?.dailyPlanId ? "Bekor qilish so‘rovi" : "To‘lovni bekor qilish"}</Text>
+            <Pressable style={styles.modalTouchArea} onPress={closeVoid} accessible={false}>
+            <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()} accessible={false}>
+              <Text style={styles.modalTitle}>{voidNeedsApproval ? "Bekor qilish so‘rovi" : "To‘lovni bekor qilish"}</Text>
               <Text style={styles.modalDescription}>
                 {voidPayment
                   ? `${formatMoney(voidPayment.amount)} · ${voidPayment.paymentId || voidPayment.id}`
                   : ""}
               </Text>
-              <Text style={styles.modalDescription}>{voidPayment?.dailyPlanId
+              <Text style={styles.modalDescription}>{voidNeedsApproval
                 ? "So‘rov superadmin tasdiqlagach to‘lov bekor qilinadi."
                 : "Bu amal mijozning to‘langan summasini kamaytiradi va qolgan qarzini oshiradi."}</Text>
               <TextInput
+                ref={voidReasonInputRef}
                 style={styles.reasonInput}
                 value={voidReason}
                 onChangeText={(value) => {
@@ -1564,11 +1593,12 @@ export default function CustomerDetailPage({
                   accessibilityRole="button"
                 >
                   <Text style={styles.modalConfirmText}>
-                    {voidSaving ? "Yuborilmoqda..." : voidPayment?.dailyPlanId ? "So‘rov yuborish" : "Tasdiqlash"}
+                    {voidSaving ? "Yuborilmoqda..." : voidNeedsApproval ? "So‘rov yuborish" : "Tasdiqlash"}
                   </Text>
                 </Pressable>
               </View>
-            </View>
+            </Pressable>
+            </Pressable>
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
@@ -2140,17 +2170,20 @@ const styles = StyleSheet.create({
   },
   statusActive: { color: "#16865A", backgroundColor: "#E8F7F0" },
   statusVoided: { color: "#A62E38", backgroundColor: "#FFF1F1" },
-  voidButton: { alignSelf: "flex-start", paddingVertical: 10, marginTop: 5 },
+  paymentActions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 5 },
+  voidButton: { flexShrink: 1, marginLeft: "auto", paddingVertical: 10 },
   voidButtonText: { color: "#C3333D", fontSize: 13, fontWeight: "700" },
+  editPaymentButton: { flexShrink: 1, paddingVertical: 10 },
+  editPaymentText: { color: "#1677D2", fontSize: 13, fontWeight: "700" },
   auditLink: { alignItems: "center", paddingVertical: 16 },
   auditLinkText: { color: "#1677D2", fontSize: 15, fontWeight: "700" },
   modalBackdrop: {
     flex: 1,
     justifyContent: "center",
-    padding: 20,
     backgroundColor: "rgba(23, 37, 54, 0.45)",
   },
   modalScroll: { flexGrow: 1, justifyContent: "center" },
+  modalTouchArea: { flexGrow: 1, justifyContent: "center", padding: 20 },
   modalCard: {
     width: "100%",
     maxWidth: 420,
