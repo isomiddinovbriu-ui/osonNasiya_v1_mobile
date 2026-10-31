@@ -2,6 +2,7 @@ export type CustomerPayment = {
   id: string;
   paymentId: string;
   dailyPlanId?: string | null;
+  allocations?: unknown[];
   type: "initial" | "installment";
   amount: number;
   remainingBalanceAfter: number | null;

@@ -20,6 +20,24 @@ type Props = {
 };
 
 type PendingChange = { body: Record<string, unknown>; nextAmount: number; paymentId: string };
+type PaymentEditResponse = {
+  payment: CustomerPayment;
+  customer: Customer;
+  audit: {
+    id: string;
+    action: "payment.updated";
+    entityType: string;
+    entityId: string;
+    mijoz_id: number;
+    actorId: string;
+    actorRole: string;
+    actorName: string;
+    createdAt: string;
+    reason: string | null;
+    before: unknown;
+    after: unknown;
+  } | null;
+};
 
 const monthNames = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
 
@@ -29,13 +47,22 @@ function monthLabel(value: string) {
   return `${monthNames[month - 1]} ${year}`;
 }
 
+function customerCreationMonth(createdAt: string) {
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return null;
+  const tashkent = new Date(created.getTime() + 5 * 60 * 60 * 1000);
+  return `${tashkent.getUTCFullYear()}-${String(tashkent.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function PaymentEditModal({ customer, payment, token, isSuperAdmin, options, onClose, onSaved, onConflict }: Props) {
+  const earliestMonth = customerCreationMonth(customer.createdAt);
+  const earliestYear = earliestMonth ? Number(earliestMonth.slice(0, 4)) : 1;
   const amountInputRef = useRef<TextInput>(null);
   const blurTargetRef = useRef<View | null>(null);
   const [amount, setAmount] = useState(String(payment.amount));
   const [forMonth, setForMonth] = useState(payment.forMonth ?? "");
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
-  const [calendarYear, setCalendarYear] = useState(() => Number(payment.forMonth?.slice(0, 4)) || new Date().getFullYear());
+  const [calendarYear, setCalendarYear] = useState(() => Math.max(earliestYear, Number(payment.forMonth?.slice(0, 4)) || new Date().getFullYear()));
   const [editMethod, setEditMethod] = useState(false);
   const [method, setMethod] = useState<PaymentMethod | null>(null);
   const [cardNumber, setCardNumber] = useState("");
@@ -65,6 +92,10 @@ export default function PaymentEditModal({ customer, payment, token, isSuperAdmi
       setError("To‘lov oyini YYYY-MM shaklida kiriting.");
       return;
     }
+    if (canEditMonth && month && earliestMonth && month < earliestMonth && month !== payment.forMonth) {
+      setError(`To‘lov oyi ${monthLabel(earliestMonth)} oyidan oldin bo‘lishi mumkin emas.`);
+      return;
+    }
     if (editMethod) {
       const detailsError = paymentDetailsError(method, cardNumber, provider, providerName, options);
       if (detailsError) { setError(detailsError); return; }
@@ -87,7 +118,7 @@ export default function PaymentEditModal({ customer, payment, token, isSuperAdmi
     const { body, paymentId } = pendingChange;
     setSaving(true);
     try {
-      const result = await apiRequest<{ customer: Customer }>(`/customers/${customer.mijoz_id}/payments/${paymentId}`, {
+      const result = await apiRequest<PaymentEditResponse>(`/customers/${customer.mijoz_id}/payments/${paymentId}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
@@ -128,14 +159,16 @@ export default function PaymentEditModal({ customer, payment, token, isSuperAdmi
             </Pressable>
             {monthPickerOpen && <View style={styles.calendar}>
               <View style={styles.calendarHeader}>
-                <Pressable style={styles.yearButton} onPress={() => setCalendarYear(year => Math.max(1, year - 1))} disabled={saving || calendarYear <= 1} accessibilityRole="button" accessibilityLabel="Oldingi yil"><Text style={styles.yearArrow}>‹</Text></Pressable>
+                <Pressable style={styles.yearButton} onPress={() => setCalendarYear(year => Math.max(earliestYear, year - 1))} disabled={saving || calendarYear <= earliestYear} accessibilityRole="button" accessibilityLabel="Oldingi yil" accessibilityState={{ disabled: saving || calendarYear <= earliestYear }}><Text style={[styles.yearArrow, calendarYear <= earliestYear && styles.yearArrowDisabled]}>‹</Text></Pressable>
                 <Text style={styles.calendarYear}>{calendarYear}</Text>
                 <Pressable style={styles.yearButton} onPress={() => setCalendarYear(year => Math.min(9999, year + 1))} disabled={saving || calendarYear >= 9999} accessibilityRole="button" accessibilityLabel="Keyingi yil"><Text style={styles.yearArrow}>›</Text></Pressable>
               </View>
               <View style={styles.monthGrid}>
                 {monthNames.map((name, index) => {
                   const value = `${String(calendarYear).padStart(4, "0")}-${String(index + 1).padStart(2, "0")}`;
-                  return <Pressable key={value} style={[styles.monthCell, forMonth === value && styles.monthSelected]} onPress={() => { setForMonth(value); setMonthPickerOpen(false); setError(""); }} disabled={saving} accessibilityRole="button" accessibilityState={{ selected: forMonth === value }}><Text style={[styles.monthText, forMonth === value && styles.monthTextSelected]}>{name}</Text></Pressable>;
+                  const unavailable = !!earliestMonth && value < earliestMonth;
+                  const selected = forMonth === value && !unavailable;
+                  return <Pressable key={value} style={[styles.monthCell, unavailable && styles.monthDisabled, selected && styles.monthSelected]} onPress={() => { setForMonth(value); setMonthPickerOpen(false); setError(""); }} disabled={saving || unavailable} accessibilityRole="button" accessibilityState={{ selected, disabled: saving || unavailable }}><Text style={[styles.monthText, unavailable && styles.monthTextDisabled, selected && styles.monthTextSelected]}>{name}</Text></Pressable>;
                 })}
               </View>
               <Pressable onPress={() => { setForMonth(""); setMonthPickerOpen(false); setError(""); }} disabled={saving} accessibilityRole="button"><Text style={styles.link}>Oyni olib tashlash</Text></Pressable>
@@ -198,11 +231,14 @@ const styles = StyleSheet.create({
   calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   yearButton: { minWidth: 44, minHeight: 40, alignItems: "center", justifyContent: "center" },
   yearArrow: { color: "#1677D2", fontSize: 28, lineHeight: 32 },
+  yearArrowDisabled: { color: "#B6C0CD" },
   calendarYear: { color: "#172536", fontSize: 17, fontWeight: "800" },
   monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   monthCell: { width: "31%", minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: "#F3F6FA" },
   monthSelected: { backgroundColor: "#1677D2" },
+  monthDisabled: { backgroundColor: "#F5F6F8" },
   monthText: { color: "#172536", fontSize: 13, fontWeight: "600" },
+  monthTextDisabled: { color: "#A8B3C1" },
   monthTextSelected: { color: "#FFFFFF" },
   hint: { color: "#627184", fontSize: 13, lineHeight: 18, marginBottom: 8 },
   error: { color: "#C3333D", fontSize: 14, marginTop: 12 },

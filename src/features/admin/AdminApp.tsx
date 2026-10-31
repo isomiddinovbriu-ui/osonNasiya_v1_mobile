@@ -21,6 +21,7 @@ import CatalogMenu from "./CatalogMenu";
 import DashboardStats from "./DashboardStats";
 import LoadingMark from "./LoadingMark";
 import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
+import { getMonthlyPaymentNotifications } from "./monthlyPaymentNotifications";
 import { canSwitchRememberedLogin, getRememberedLogin, rememberLogin, setCanSwitchRememberedLogin } from "./rememberedLogin";
 import { deleteStoredToken, getStoredToken, logoutStoredSession, setStoredSession } from "./session";
 
@@ -94,6 +95,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
   const [dueCallCount, setDueCallCount] = useState<number | null>(null);
+  const [outstandingMonthlyCount, setOutstandingMonthlyCount] = useState<number | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const blurTargetRef = useRef<View | null>(null);
   const homeScrollRef = useRef<ScrollView | null>(null);
@@ -183,6 +185,23 @@ export default function App() {
   }, [user]));
 
   useFocusEffect(useCallback(() => {
+    if (!user || user.role === "product_creator") return;
+    let active = true;
+    async function loadMonthlyPayments() {
+      try {
+        const token = await getStoredToken();
+        if (!token) return;
+        const result = await getMonthlyPaymentNotifications(token, { status: "all", page: 1, limit: 1 });
+        if (active) setOutstandingMonthlyCount(result.counts.due + result.counts.partial);
+      } catch {
+        if (active) setOutstandingMonthlyCount(null);
+      }
+    }
+    void loadMonthlyPayments();
+    return () => { active = false; };
+  }, [user]));
+
+  useFocusEffect(useCallback(() => {
     if (!user?.id) return;
     let active = true;
     async function refreshProfile() {
@@ -261,6 +280,7 @@ export default function App() {
       setConfirmSignOut(false);
       setUser(null);
       setDueCallCount(null);
+      setOutstandingMonthlyCount(null);
       setPassword("");
       setLogin(user?.login ?? login);
       setEditingLogin(false);
@@ -330,6 +350,12 @@ export default function App() {
       ...(user.role === "super_admin"
         ? [{ title: "Bekor qilish so‘rovlari", shortTitle: "So‘rovlar", href: "/payment-void-requests" as Href, icon: { ios: "checkmark.shield", android: "fact_check", web: "fact_check" } as const }]
         : []),
+      ...(user.role === "super_admin"
+        ? [{ title: "To‘lov tahrirlari", shortTitle: "Bildirishnomalar", href: "/payment-edit-notifications" as Href, icon: { ios: "bell", android: "notifications", web: "notifications" } as const }]
+        : []),
+      ...(user.role !== "product_creator"
+        ? [{ title: "Oylik to‘lovlar", href: "/monthly-payments" as Href, icon: { ios: "calendar", android: "event_note", web: "event_note" } as const }]
+        : []),
       { title: "Mijozlar", href: "/customers" as Href, icon: { ios: "person.2", android: "group", web: "group" } },
       ...(user.role !== "product_creator"
         ? [{ title: "Aloqalar", href: "/contacts" as Href, icon: { ios: "phone.arrow.up.right", android: "call", web: "call" } as const }]
@@ -352,6 +378,17 @@ export default function App() {
                 <Text style={styles.brand}>OsonNasiya</Text>
               </View>
               <View style={styles.headerActions}>
+                {user.role !== "product_creator" && <Pressable
+                  style={styles.callIconButton}
+                  onPress={() => router.push("/monthly-payments" as Href)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Shu oyning to‘lov bildirishnomalari${outstandingMonthlyCount !== null ? `, to‘lanmagan yoki qisman ${outstandingMonthlyCount} ta` : ""}`}
+                >
+                  <SymbolView name={{ ios: "bell.fill", android: "notifications", web: "notifications" }} tintColor="#1677D2" size={22} />
+                  {outstandingMonthlyCount !== null && outstandingMonthlyCount > 0 && <View style={styles.callBadge}>
+                    <Text style={styles.callBadgeText}>{outstandingMonthlyCount > 99 ? "99+" : outstandingMonthlyCount}</Text>
+                  </View>}
+                </Pressable>}
                 {user.role !== "product_creator" && <Pressable
                   style={styles.callIconButton}
                   onPress={() => router.push("/contacts")}

@@ -1,9 +1,11 @@
+import { BlurTargetView, BlurView } from "expo-blur";
 import { randomUUID } from "expo-crypto";
 import * as Linking from "expo-linking";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BackHandler,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -33,6 +35,7 @@ import MoneyInput from "./MoneyInput";
 import PaymentMethodFields, { ProviderIcon } from "./PaymentMethodFields";
 import PaymentEditModal from "./PaymentEditModal";
 import {
+  fullCardForLast4,
   paymentDetailsError,
   paymentExtraFields,
   usePaymentOptions,
@@ -212,9 +215,12 @@ export default function CustomerDetailPage({
   const [paymentNotice, setPaymentNotice] = useState("");
   const [retryPayment, setRetryPayment] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [confirmPaymentOpen, setConfirmPaymentOpen] = useState(false);
+  const [selectedCard, setSelectedCard] = useState<string | null>(null);
   const [paymentStep, setPaymentStep] = useState<0 | 1 | 2 | 3>(0);
   const [furthestPaymentStep, setFurthestPaymentStep] = useState<1 | 2 | 3>(1);
   const scrollRef = useRef<ScrollView>(null);
+  const paymentBlurTargetRef = useRef<View | null>(null);
   const voidReasonInputRef = useRef<TextInput>(null);
   const paymentAttempt = useRef<PaymentAttempt | null>(null);
   const paymentRequestInFlight = useRef(false);
@@ -222,6 +228,9 @@ export default function CustomerDetailPage({
   const activePayments =
     customer?.payments.filter((payment) => payment.status !== "voided")
       .length ?? 0;
+  const remainingPurchaseAmount = customer
+    ? Math.max(0, customer.totalPrice - customer.totalPaid)
+    : 0;
   const monthlyPayment =
     customer &&
     customer.termMonths > 0 &&
@@ -248,6 +257,24 @@ export default function CustomerDetailPage({
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [paymentStep]);
+
+  useEffect(() => {
+    if (!confirmPaymentOpen) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setConfirmPaymentOpen(false);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [confirmPaymentOpen]);
+
+  useEffect(() => {
+    if (!selectedCard) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setSelectedCard(null);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [selectedCard]);
 
   function goToPaymentStep(target: 1 | 2 | 3) {
     if (
@@ -310,7 +337,9 @@ export default function CustomerDetailPage({
       setPaymentStep(3);
       return;
     }
-    void addPayment();
+    if (savingPayment) return;
+    Keyboard.dismiss();
+    setConfirmPaymentOpen(true);
   }
 
   const load = useCallback(async () => {
@@ -643,6 +672,11 @@ export default function CustomerDetailPage({
 
   return (
     <View style={styles.screen}>
+      <BlurTargetView
+        ref={paymentBlurTargetRef}
+        style={styles.screen}
+        importantForAccessibility={confirmPaymentOpen || selectedCard ? "no-hide-descendants" : "auto"}
+      >
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Pressable
           onPress={() => {
@@ -1084,18 +1118,23 @@ export default function CustomerDetailPage({
                                 {formatMoneyWithUnits(payment.amount, true)}
                               </Text>
                             </View>
-                            <Text
-                              style={[
-                                styles.paymentStatus,
-                                payment.status === "voided"
-                                  ? styles.statusVoided
-                                  : styles.statusActive,
-                              ]}
-                            >
-                              {payment.status === "voided"
-                                ? "Bekor qilingan"
-                                : "Faol"}
-                            </Text>
+                            <View style={styles.paymentHeaderActions}>
+                              <Text
+                                style={[
+                                  styles.paymentStatus,
+                                  payment.status === "voided"
+                                    ? styles.statusVoided
+                                    : styles.statusActive,
+                                ]}
+                              >
+                                {payment.status === "voided"
+                                  ? "Bekor qilingan"
+                                  : "Faol"}
+                              </Text>
+                              <View style={styles.paymentViewIcon}>
+                                <SymbolView name={{ ios: "eye", android: "visibility", web: "visibility" }} size={18} tintColor="#1677D2" />
+                              </View>
+                            </View>
                           </View>
                           {payment.status === "active" &&
                             payment.remainingBalanceAfter !== null &&
@@ -1124,10 +1163,25 @@ export default function CustomerDetailPage({
                             }
                           />
                           {!!payment.cardLast4 && (
-                            <Row
-                              label="Karta"
-                              value={`•••• ${payment.cardLast4}`}
-                            />
+                            <View style={styles.row}>
+                              <Text style={styles.rowLabel}>Karta</Text>
+                              <View style={styles.rowValueGroup}>
+                                {fullCardForLast4(payment.cardLast4) ? (
+                                  <Pressable
+                                    onPress={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedCard(fullCardForLast4(payment.cardLast4 ?? ""));
+                                    }}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Oxiri ${payment.cardLast4} bo‘lgan kartani to‘liq ko‘rish`}
+                                  >
+                                    <Text style={[styles.rowValue, styles.cardNumberLink]}>•••• {payment.cardLast4}</Text>
+                                  </Pressable>
+                                ) : (
+                                  <Text style={styles.rowValue}>•••• {payment.cardLast4}</Text>
+                                )}
+                              </View>
+                            </View>
                           )}
                           {!!payment.provider && (
                             <Row
@@ -1234,6 +1288,38 @@ export default function CustomerDetailPage({
                 )}
               </>
             )}
+            {paymentsOnly &&
+              paymentStep === 1 &&
+              customer.remainingBalance > 0 && (
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Xarid ma’lumotlari</Text>
+                  <Text style={styles.purchaseProduct}>
+                    <Text style={styles.purchaseProductLabel}>Mahsulot nomi: </Text>
+                    {detailNames?.product || customer.productName}
+                  </Text>
+                  <View style={styles.purchaseFacts}>
+                    <View style={styles.purchaseFact}>
+                      <Text style={styles.purchaseFactLabel}>Sotilgan narx</Text>
+                      <Text style={styles.purchaseFactValue}>
+                        {formatMoney(customer.totalPrice)}
+                      </Text>
+                      <Text style={styles.purchaseFactWords}>
+                        {formatMoneyWithUnits(customer.totalPrice)}
+                      </Text>
+                    </View>
+                    <View style={styles.purchaseFact}>
+                      <Text style={styles.purchaseFactLabel}>Nasiya muddati</Text>
+                      <Text style={styles.purchaseFactValue}>
+                        {customer.termMonths} oy
+                      </Text>
+                    </View>
+                  </View>
+                  <PurchaseRemaining
+                    customer={customer}
+                    amount={remainingPurchaseAmount}
+                  />
+                </View>
+              )}
             {paymentsOnly &&
               paymentStep > 0 &&
               customer.remainingBalance > 0 && (
@@ -1526,6 +1612,73 @@ export default function CustomerDetailPage({
           </Pressable>
         </View>
       )}
+      </BlurTargetView>
+      {confirmPaymentOpen && customer && (
+        <View style={styles.paymentConfirmOverlay} accessibilityViewIsModal>
+          <BlurView
+            blurTarget={paymentBlurTargetRef}
+            blurMethod="dimezisBlurView"
+            intensity={75}
+            tint="light"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.paymentConfirmScrim} />
+          <View style={styles.paymentConfirmCard}>
+            <View style={styles.paymentConfirmIcon}>
+              <Text style={styles.paymentConfirmIconText}>!</Text>
+            </View>
+            <Text style={styles.paymentConfirmTitle} accessibilityRole="header">
+              To‘lovni amalga oshirishga aminmisiz?
+            </Text>
+            <View style={styles.paymentConfirmDetails}>
+              <Row label="Mijoz" value={customer.name} />
+              <Row label="To‘lov summasi" value={formatMoney(parseMoney(amount) || 0)} />
+              <Row label="To‘lov oyi" value={formatPaymentMonth(forMonth)} />
+            </View>
+            <Text style={styles.paymentConfirmWarning}>
+              Tasdiqlasangiz, to‘lov saqlanadi va qolgan qarz yangilanadi.
+            </Text>
+            <View style={styles.paymentConfirmActions}>
+              <Pressable
+                style={styles.modalCancel}
+                onPress={() => setConfirmPaymentOpen(false)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.modalCancelText}>Bekor qilish</Text>
+              </Pressable>
+              <Pressable
+                style={styles.paymentConfirmButton}
+                onPress={() => {
+                  setConfirmPaymentOpen(false);
+                  void addPayment();
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.submitText}>Tasdiqlash</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+      {!!selectedCard && (
+        <View style={styles.paymentConfirmOverlay} accessibilityViewIsModal>
+          <BlurView
+            blurTarget={paymentBlurTargetRef}
+            blurMethod="dimezisBlurView"
+            intensity={75}
+            tint="light"
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.paymentConfirmScrim} />
+          <View style={styles.paymentConfirmCard}>
+            <Text style={styles.cardNumberTitle} accessibilityRole="header">Karta raqami</Text>
+            <Text style={styles.cardNumberFull} selectable>{selectedCard.replace(/(\d{4})(?=\d)/g, "$1 ")}</Text>
+            <Pressable style={styles.cardNumberClose} onPress={() => setSelectedCard(null)} accessibilityRole="button">
+              <Text style={styles.submitText}>Yopish</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
       {editPayment && customer && paymentToken && <PaymentEditModal
         key={editPayment.paymentId || editPayment.id}
         customer={customer}
@@ -1609,6 +1762,48 @@ export default function CustomerDetailPage({
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+    </View>
+  );
+}
+
+function PurchaseRemaining({
+  customer,
+  amount,
+}: {
+  customer: Customer;
+  amount: number;
+}) {
+  const { percent, tone } = getCustomerProgress({
+    totalPrice: customer.totalPrice,
+    totalPaid: customer.totalPaid,
+    remainingBalance: amount,
+  });
+  return (
+    <View style={styles.purchaseRemaining}>
+      <View style={[styles.purchaseRemainingPanel, { backgroundColor: tone.background }]}>
+        <Text style={styles.purchaseFactLabel}>
+          Qolgan summa (jami narx − to‘langan)
+        </Text>
+        <Text style={[styles.purchaseFactValue, { color: tone.textColor }]}>
+          {formatMoney(amount)}
+        </Text>
+        <Text style={styles.purchaseFactWords}>
+          {formatMoneyWithUnits(amount)}
+        </Text>
+        <View
+          style={[styles.balanceTrack, styles.purchaseProgressTrack, { backgroundColor: tone.track }]}
+          accessibilityRole="progressbar"
+          accessibilityLabel="To‘langan ulush"
+          accessibilityValue={{ min: 0, max: 100, now: percent }}
+        >
+          <View
+            style={[styles.balanceFill, { width: `${percent}%`, backgroundColor: tone.fill }]}
+          />
+        </View>
+        <Text style={[styles.purchaseProgressText, { color: tone.textColor }]}>
+          To‘langan: {percent}% · Qolgan: {100 - percent}%
+        </Text>
+      </View>
     </View>
   );
 }
@@ -1828,6 +2023,79 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 10,
     paddingBottom: 18,
+  },
+  paymentConfirmOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  paymentConfirmScrim: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(23, 37, 54, 0.2)",
+  },
+  paymentConfirmCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    padding: 22,
+    alignItems: "center",
+    shadowColor: "#263A52",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  cardNumberTitle: { color: "#172536", fontSize: 19, fontWeight: "800" },
+  cardNumberFull: { color: "#172536", fontSize: 20, fontWeight: "800", marginTop: 18, marginBottom: 22, textAlign: "center" },
+  cardNumberClose: { width: "100%", minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: "#1677D2" },
+  paymentConfirmIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFF1D9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  paymentConfirmIconText: { color: "#C77A13", fontSize: 25, fontWeight: "800" },
+  paymentConfirmTitle: {
+    color: "#172536",
+    fontSize: 19,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  paymentConfirmDetails: {
+    alignSelf: "stretch",
+    backgroundColor: "#F6F8FB",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    marginTop: 18,
+  },
+  paymentConfirmWarning: {
+    color: "#627184",
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 16,
+  },
+  paymentConfirmActions: { width: "100%", flexDirection: "row", gap: 10, marginTop: 22 },
+  paymentConfirmButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 11,
+    backgroundColor: "#1677D2",
   },
   stepSubtitle: {
     color: "#627184",
@@ -2105,6 +2373,43 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginBottom: 5,
   },
+  purchaseProduct: {
+    color: "#172536",
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  purchaseProductLabel: { color: "#627184", fontSize: 12, fontWeight: "400" },
+  purchaseFacts: { flexDirection: "row", gap: 12 },
+  purchaseFact: { flex: 1, minWidth: 0 },
+  purchaseFactLabel: { color: "#627184", fontSize: 12, marginBottom: 3 },
+  purchaseFactWords: {
+    color: "#627184",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  purchaseFactValue: {
+    color: "#172536",
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  purchaseRemaining: {
+    borderTopWidth: 1,
+    borderTopColor: "#EEF1F5",
+    marginTop: 12,
+    paddingTop: 10,
+  },
+  purchaseRemainingPanel: { borderRadius: 10, padding: 12 },
+  purchaseProgressTrack: { marginTop: 12 },
+  purchaseProgressText: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 6,
+    textAlign: "right",
+  },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2137,6 +2442,7 @@ const styles = StyleSheet.create({
     textAlign: "right",
     lineHeight: 20,
   },
+  cardNumberLink: { color: "#1677D2", textDecorationLine: "underline" },
   rowWords: {
     color: "#627184",
     fontSize: 12,
@@ -2160,6 +2466,8 @@ const styles = StyleSheet.create({
   },
   paymentAmount: { color: "#172536", fontSize: 17, fontWeight: "800" },
   paymentAmountGroup: { flex: 1 },
+  paymentHeaderActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  paymentViewIcon: { width: 30, height: 30, borderRadius: 9, backgroundColor: "#EAF4FF", alignItems: "center", justifyContent: "center" },
   paymentWords: {
     color: "#627184",
     fontSize: 12,

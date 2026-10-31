@@ -7,8 +7,10 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-n
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, apiRequestText, type User } from "./api";
 import { formatMoney } from "./customers";
-import DateFilterField from "./DateFilterField";
+import DateFilterField, { formatUzDate } from "./DateFilterField";
 import LoadingMark from "./LoadingMark";
+import { formatMoneyWithUnits } from "./money";
+import { PullRefreshControl, PullRefreshFeedback } from "./PullRefresh";
 import { deleteStoredToken, getStoredToken } from "./session";
 
 type ReportTab = "revenue" | "sales" | "debt" | "monthly-underpaid";
@@ -61,6 +63,16 @@ const tabs = [
 const underpaidLimit = 20;
 const reportMonths = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
 
+function formatReportPeriod(period: string) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(period)) return formatUzDate(period, " ");
+  const month = /^(\d{4})-(\d{2})$/.exec(period);
+  if (month) {
+    const name = reportMonths[Number(month[2]) - 1];
+    if (name) return `${name.toLocaleLowerCase("uz-UZ")} ${month[1]} yil`;
+  }
+  return period;
+}
+
 function tashkentToday() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit",
@@ -102,8 +114,6 @@ export default function ReportsPage() {
   const [tab, setTab] = useState<ReportTab>("revenue");
   const [from, setFrom] = useState(tashkentToday);
   const [to, setTo] = useState(tashkentToday);
-  const [appliedFrom, setAppliedFrom] = useState(tashkentToday);
-  const [appliedTo, setAppliedTo] = useState(tashkentToday);
   const [revenueGroup, setRevenueGroup] = useState<RevenueGroup>("day");
   const [salesGroup, setSalesGroup] = useState<SalesGroup>("region");
   const [reportYear, setReportYear] = useState(() => Number(tashkentToday().slice(0, 4)));
@@ -113,15 +123,16 @@ export default function ReportsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [result, setResult] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [filterError, setFilterError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const requestSequence = useRef(0);
+  const validPeriod = validDate(from) && validDate(to) && from <= to;
 
   const path = useMemo(
-    () => reportPath(tab, appliedFrom, appliedTo, revenueGroup, salesGroup, appliedMonth, page),
-    [tab, appliedFrom, appliedTo, revenueGroup, salesGroup, appliedMonth, page],
+    () => reportPath(tab, from, to, revenueGroup, salesGroup, appliedMonth, page),
+    [tab, from, to, revenueGroup, salesGroup, appliedMonth, page],
   );
 
   const load = useCallback(async (requestId: number) => {
@@ -157,26 +168,27 @@ export default function ReportsPage() {
           : cause instanceof Error ? cause.message : "Hisobot yuklanmadi.");
       }
     } finally {
-      if (isCurrent()) setLoading(false);
+      if (isCurrent()) { setLoading(false); setRefreshing(false); }
     }
   }, [path, tab]);
 
   useEffect(() => {
     const requestId = ++requestSequence.current;
-    if (tab === "monthly-underpaid" && reportMonth === 0) return;
+    if ((tab === "monthly-underpaid" && reportMonth === 0) || ((tab === "revenue" || tab === "sales") && !validPeriod)) return;
     const timer = setTimeout(() => { void load(requestId); }, 0);
     return () => { clearTimeout(timer); requestSequence.current += 1; };
-  }, [load, refreshKey, reportMonth, tab]);
+  }, [load, refreshKey, reportMonth, tab, validPeriod]);
 
-  function applyFilter() {
-    if (!validDate(from.trim()) || !validDate(to.trim()) || from.trim() > to.trim()) {
-      setFilterError("Sanalarni YYYY-MM-DD shaklida kiriting. Boshlanish tugashdan keyin bo‘lmasin.");
-      return;
+  function selectDateRange(nextFrom: string, nextTo: string) {
+    setFrom(nextFrom);
+    setTo(nextTo);
+    if (!validDate(nextFrom) || !validDate(nextTo) || nextFrom > nextTo) {
+      requestSequence.current += 1;
+      setResult(null);
+      setLoading(false);
+      setRefreshing(false);
+      setError("");
     }
-    setFilterError("");
-    setAppliedFrom(from.trim());
-    setAppliedTo(to.trim());
-    setRefreshKey((value) => value + 1);
   }
 
   async function exportCsv() {
@@ -190,7 +202,7 @@ export default function ReportsPage() {
       const csv = await apiRequestText(`${path}${separator}format=csv`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "text/csv" },
       });
-      const filename = `hisobot-${tab}-${tab === "monthly-underpaid" ? `${appliedMonth}-${page}` : tab === "debt" ? tashkentToday() : `${appliedFrom}-${appliedTo}`}.csv`;
+      const filename = `hisobot-${tab}-${tab === "monthly-underpaid" ? `${appliedMonth}-${page}` : tab === "debt" ? tashkentToday() : `${from}-${to}`}.csv`;
       if (Platform.OS === "web") {
         const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
         const link = document.createElement("a");
@@ -233,19 +245,25 @@ export default function ReportsPage() {
   ];
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 36 }]} keyboardShouldPersistTaps="handled">
-      <Pressable onPress={() => router.back()} accessibilityRole="button" style={styles.back}>
-        <SymbolView name={{ ios: "chevron.left", android: "arrow_back", web: "arrow_back" }} size={18} tintColor="#1677D2" />
-        <Text style={styles.link}>Bosh sahifa</Text>
-      </Pressable>
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerContent}>
+          <Pressable onPress={() => router.back()} accessibilityRole="button" style={styles.back}>
+            <SymbolView name={{ ios: "chevron.left", android: "arrow_back", web: "arrow_back" }} size={18} tintColor="#1677D2" />
+            <Text style={styles.link}>Bosh sahifa</Text>
+          </Pressable>
+        </View>
+      </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingTop: 20, paddingBottom: insets.bottom + 36 }]} keyboardShouldPersistTaps="handled" refreshControl={<PullRefreshControl refreshing={refreshing} onRefresh={() => { if (loading || refreshing || (tab === "monthly-underpaid" && reportMonth === 0) || ((tab === "revenue" || tab === "sales") && !validPeriod)) return; setRefreshing(true); setRefreshKey((value) => value + 1); }} />}>
       <Text style={styles.eyebrow}>BOSHQARUV PANELI</Text>
       <Text style={styles.title}>Hisobotlar</Text>
+      <PullRefreshFeedback active={refreshing} />
       <Text style={styles.subtitle}>Moliyaviy ko‘rsatkichlarni bir joyda kuzating</Text>
       <Text style={styles.sectionLabel}>HISOBOT TURI</Text>
       <View style={styles.tabs} accessibilityRole="tablist">
         {tabs.map((item) => {
           const selected = tab === item.id;
-          return <Pressable key={item.id} onPress={() => { setTab(item.id); setFilterError(""); setExportError(""); }} accessibilityRole="tab" accessibilityState={{ selected }} style={({ pressed }) => [styles.tab, selected && styles.tabSelected, pressed && styles.tabPressed]}>
+          return <Pressable key={item.id} onPress={() => { setTab(item.id); setRefreshing(false); setExportError(""); }} accessibilityRole="tab" accessibilityState={{ selected }} style={({ pressed }) => [styles.tab, selected && styles.tabSelected, pressed && styles.tabPressed]}>
             <View style={[styles.tabIcon, selected && styles.tabIconSelected]}>
               <SymbolView name={item.icon} size={20} tintColor={selected ? "#FFFFFF" : "#1677D2"} />
             </View>
@@ -262,7 +280,7 @@ export default function ReportsPage() {
         {tab === "monthly-underpaid" ? <>
           <Text style={styles.inputLabel}>Yil</Text>
           <View style={styles.reportOptions}>
-            {reportYears.map((year) => <Pressable key={year} onPress={() => { if (year === reportYear) return; requestSequence.current += 1; setReportYear(year); setReportMonth(0); setResult(null); setLoading(false); setError(""); setFilterError(""); }} accessibilityRole="radio" accessibilityLabel={`${year}-yil`} accessibilityState={{ selected: reportYear === year }} style={[styles.reportOption, styles.yearOption, reportYear === year && styles.reportOptionSelected]}>
+            {reportYears.map((year) => <Pressable key={year} onPress={() => { if (year === reportYear) return; requestSequence.current += 1; setReportYear(year); setReportMonth(0); setResult(null); setLoading(false); setRefreshing(false); setError(""); }} accessibilityRole="radio" accessibilityLabel={`${year}-yil`} accessibilityState={{ selected: reportYear === year }} style={[styles.reportOption, styles.yearOption, reportYear === year && styles.reportOptionSelected]}>
               <Text style={[styles.reportOptionText, reportYear === year && styles.reportOptionTextSelected]}>{year}</Text>
             </Pressable>)}
           </View>
@@ -272,7 +290,7 @@ export default function ReportsPage() {
               const value = index + 1;
               const future = reportYear === currentYear && value > currentMonth;
               const selected = reportMonth === value;
-              return <Pressable key={name} onPress={() => { setReportMonth(value); setPage(1); setAppliedMonth(`${reportYear}-${String(value).padStart(2, "0")}`); setRefreshKey((current) => current + 1); setFilterError(""); }} disabled={future} accessibilityRole="radio" accessibilityLabel={`${name} ${reportYear}`} accessibilityState={{ selected, disabled: future }} style={[styles.reportOption, styles.monthOption, selected && styles.reportOptionSelected, future && styles.disabled]}>
+              return <Pressable key={name} onPress={() => { setReportMonth(value); setPage(1); setAppliedMonth(`${reportYear}-${String(value).padStart(2, "0")}`); setRefreshKey((current) => current + 1); }} disabled={future} accessibilityRole="radio" accessibilityLabel={`${name} ${reportYear}`} accessibilityState={{ selected, disabled: future }} style={[styles.reportOption, styles.monthOption, selected && styles.reportOptionSelected, future && styles.disabled]}>
                 <Text style={[styles.reportOptionText, selected && styles.reportOptionTextSelected]}>{name}</Text>
               </Pressable>;
             })}
@@ -282,13 +300,13 @@ export default function ReportsPage() {
           <View style={styles.datePresets}>
             {datePresets.map((preset) => {
               const selected = from === preset.from && to === preset.to;
-              return <Pressable key={preset.label} onPress={() => { setFrom(preset.from); setTo(preset.to); setFilterError(""); }} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.datePreset, selected && styles.datePresetSelected]}>
+              return <Pressable key={preset.label} onPress={() => selectDateRange(preset.from, preset.to)} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.datePreset, selected && styles.datePresetSelected]}>
                 <Text style={[styles.datePresetText, selected && styles.datePresetTextSelected]}>{preset.label}</Text>
               </Pressable>;
             })}
           </View>
-          <DateFilterField label="Boshlanish" value={from} todayKey={todayKey} onChange={(value) => { setFrom(value); if (value && value > to) setTo(value); setFilterError(""); }} />
-          <DateFilterField label="Tugash" value={to} todayKey={todayKey} onChange={(value) => { setTo(value); if (value && value < from) setFrom(value); setFilterError(""); }} />
+          <DateFilterField label="Boshlanish" value={from} todayKey={todayKey} modal historicalPresets longFormat onChange={(value) => selectDateRange(value, value && value > to ? value : to)} />
+          <DateFilterField label="Tugash" value={to} todayKey={todayKey} modal historicalPresets longFormat onChange={(value) => selectDateRange(value && value < from ? value : from, value)} />
           <Text style={styles.hint}>Ikkala sana ham hisobga olinadi</Text>
           <Text style={styles.inputLabel}>Guruhlash</Text>
           <View style={styles.groupRow}>
@@ -300,13 +318,12 @@ export default function ReportsPage() {
             })}
           </View>
         </>}
-        {!!filterError && <Text style={styles.error} accessibilityRole="alert">{filterError}</Text>}
-        {tab !== "monthly-underpaid" && <Pressable onPress={applyFilter} accessibilityRole="button" style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryButtonPressed]}><Text style={styles.primaryText}>Hisobotni ko‘rish</Text><Text style={styles.primaryArrow}>›</Text></Pressable>}
+        {tab !== "monthly-underpaid" && !validPeriod && <Text style={styles.error} accessibilityRole="alert">Hisobot uchun ikkala sanani tanlang.</Text>}
       </View>}
 
       {tab === "monthly-underpaid" && reportMonth === 0 && <Text style={styles.hint}>Hisobotni ko‘rish uchun oyni tanlang.</Text>}
       {tab === "debt" && <View style={styles.debtNote}><SymbolView name={{ ios: "info.circle.fill", android: "info", web: "info" }} size={20} tintColor="#1677D2" /><Text style={styles.debtNoteText}>Qarz holati ayni vaqtdagi ma’lumotlar asosida olinadi.</Text></View>}
-      {loading && <View style={styles.loading}><LoadingMark size={64} /><Text style={styles.muted}>Hisobot yuklanmoqda...</Text></View>}
+      {loading && !refreshing && <View style={styles.loading}><LoadingMark size={64} /><Text style={styles.muted}>Hisobot yuklanmoqda...</Text></View>}
       {!!error && !loading && <View style={styles.errorCard}>
         <View style={styles.errorIcon}><SymbolView name={{ ios: "exclamationmark.circle.fill", android: "error_outline", web: "error_outline" }} size={25} tintColor="#C94A4F" /></View>
         <Text style={styles.errorTitle}>Hisobot yuklanmadi</Text>
@@ -317,18 +334,18 @@ export default function ReportsPage() {
       {!loading && !error && result?.kind === "revenue" && <>
         <Summary title="Jami tushum" amount={result.data.total.amount} count={`${result.data.total.paymentCount} ta to‘lov`} />
         {result.data.rows.length === 0 && <Empty />}
-        {result.data.rows.map((row) => <View key={row.period} style={styles.card}><Text style={styles.rowTitle}>{row.period}</Text><Text style={styles.rowAmount}>{formatMoney(row.amount)}</Text><Text style={styles.muted}>{row.paymentCount} ta to‘lov</Text></View>)}
+        {result.data.rows.map((row) => <View key={row.period} style={styles.card}><Text style={styles.rowTitle}>{formatReportPeriod(row.period)}</Text><AmountText value={row.amount} /><Text style={styles.muted}>{row.paymentCount} ta to‘lov</Text></View>)}
       </>}
       {!loading && !error && result?.kind === "sales" && <>
         <Summary title="Jami savdo" amount={result.data.total.salesAmount} count={`${result.data.total.salesCount} ta savdo`} />
         {result.data.rows.length === 0 && <Empty />}
-        {result.data.rows.map((row) => <View key={row.id} style={styles.card}><Text style={styles.rowTitle}>{row.name}</Text><Text style={styles.rowAmount}>{formatMoney(row.salesAmount)}</Text><Text style={styles.muted}>{row.salesCount} ta savdo</Text></View>)}
+        {result.data.rows.map((row) => <View key={row.id} style={styles.card}><Text style={styles.rowTitle}>{row.name}</Text><AmountText value={row.salesAmount} /><Text style={styles.muted}>{row.salesCount} ta savdo</Text></View>)}
       </>}
       {!loading && !error && result?.kind === "debt" && <>
         <Text style={styles.asOf}>Sana: {result.data.asOfDate}</Text>
         <Summary title="Jami qolgan qarz" amount={result.data.totalDebt} count={`${result.data.customerCount} ta mijoz`} />
-        <View style={styles.card}><Text style={styles.rowTitle}>Muddati o‘tgan qarz</Text><Text style={styles.rowAmount}>{formatMoney(result.data.overdueDebt)}</Text><Text style={styles.muted}>{result.data.overdueCustomers} ta mijoz</Text></View>
-        <View style={styles.card}><Text style={styles.rowTitle}>Hisoblanmagan yozuvlar</Text><Text style={styles.rowAmount}>{formatMoney(result.data.unclassifiedDebt)}</Text><Text style={styles.muted}>{result.data.unclassifiedCustomers} ta mijoz</Text></View>
+        <View style={styles.card}><Text style={styles.rowTitle}>Muddati o‘tgan qarz</Text><AmountText value={result.data.overdueDebt} /><Text style={styles.muted}>{result.data.overdueCustomers} ta mijoz</Text></View>
+        <View style={styles.card}><Text style={styles.rowTitle}>Hisoblanmagan yozuvlar</Text><AmountText value={result.data.unclassifiedDebt} /><Text style={styles.muted}>{result.data.unclassifiedCustomers} ta mijoz</Text></View>
         <Text style={styles.hint}>Muddati o‘tgan qarz to‘lov jadvalisiz hisoblangan ko‘rsatkich. Penya qo‘shilmagan.</Text>
       </>}
       {!loading && !error && result?.kind === "monthly-underpaid" && <>
@@ -355,12 +372,18 @@ export default function ReportsPage() {
         {tab === "monthly-underpaid" && <Text style={styles.hint}>CSV faqat {page}-sahifadagi mijozlarni o‘z ichiga oladi.</Text>}
         {!!exportError && <Text style={styles.error} accessibilityRole="alert">{exportError}</Text>}
       </View>}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 function Summary({ title, amount, count }: { title: string; amount: number; count: string }) {
-  return <View style={styles.summary}><Text style={styles.summaryLabel}>{title}</Text><Text style={styles.summaryAmount}>{formatMoney(amount)}</Text><Text style={styles.summaryCount}>{count}</Text></View>;
+  return <View style={styles.summary}><Text style={styles.summaryLabel}>{title}</Text><AmountText value={amount} summary /><Text style={styles.summaryCount}>{count}</Text></View>;
+}
+
+function AmountText({ value, summary = false }: { value: number; summary?: boolean }) {
+  const words = formatMoneyWithUnits(value);
+  return <Text style={summary ? styles.summaryAmount : styles.rowAmount}>{formatMoney(value)}{words && <Text style={styles.amountWords}> ({words})</Text>}</Text>;
 }
 
 function Info({ label, value, emphasized }: { label: string; value: string; emphasized?: boolean }) {
@@ -371,8 +394,11 @@ function Empty() { return <View style={styles.card}><Text style={styles.muted}>B
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F6F8FB" },
+  scroll: { flex: 1 },
+  header: { backgroundColor: "#F6F8FB", borderBottomWidth: 1, borderBottomColor: "#E5EBF2", paddingBottom: 4 },
+  headerContent: { paddingHorizontal: 18, maxWidth: 600, width: "100%", alignSelf: "center" },
   content: { paddingHorizontal: 18, maxWidth: 600, width: "100%", alignSelf: "center" },
-  back: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, minHeight: 44, marginBottom: 20 },
+  back: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, minHeight: 44 },
   link: { color: "#1677D2", fontSize: 14, fontWeight: "700" },
   eyebrow: { color: "#1677D2", fontSize: 11, fontWeight: "800", letterSpacing: 1.2, marginBottom: 6 },
   title: { color: "#172536", fontSize: 29, fontWeight: "800" },
@@ -409,10 +435,6 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: "#EAF4FF", borderColor: "#A8D0F5" },
   chipText: { color: "#627184", fontSize: 13, fontWeight: "700" },
   chipTextSelected: { color: "#1677D2" },
-  primaryButton: { minHeight: 48, borderRadius: 11, backgroundColor: "#1677D2", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 6 },
-  primaryButtonPressed: { backgroundColor: "#1267B8" },
-  primaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
-  primaryArrow: { color: "#FFFFFF", fontSize: 23, lineHeight: 25, marginTop: -2 },
   debtNote: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, padding: 14, backgroundColor: "#EAF4FF", marginBottom: 17 },
   debtNoteText: { flex: 1, color: "#426689", fontSize: 13, lineHeight: 19 },
   loading: { alignItems: "center", paddingVertical: 36 },
@@ -428,6 +450,7 @@ const styles = StyleSheet.create({
   summary: { borderRadius: 18, backgroundColor: "#E7F2FF", padding: 20, marginBottom: 15 },
   summaryLabel: { color: "#1769B6", fontSize: 13, fontWeight: "700" },
   summaryAmount: { color: "#173B61", fontSize: 27, fontWeight: "800", marginTop: 5 },
+  amountWords: { color: "#627184", fontSize: 13, fontWeight: "500" },
   summaryCount: { color: "#4C6B88", fontSize: 13, marginTop: 5 },
   rowHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   rowTitle: { color: "#172536", fontSize: 16, fontWeight: "800", marginBottom: 7 },

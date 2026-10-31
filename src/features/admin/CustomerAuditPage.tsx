@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, apiRequest, type User } from "./api";
+import AuditChangeList from "./AuditChangeList";
 import { formatDate } from "./customers";
 import LoadingMark from "./LoadingMark";
 import { deleteStoredToken, getStoredToken } from "./session";
@@ -32,12 +33,6 @@ const actionNames: Record<AuditEntry["action"], string> = {
   "payment.updated": "To‘lov tahrirlandi",
   "payment.voided": "To‘lov bekor qilindi",
 };
-
-function snapshotText(value: unknown) {
-  if (value == null) return "Ma’lumot yo‘q";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2) || "Ma’lumot yo‘q";
-}
 
 export default function CustomerAuditPage() {
   const insets = useSafeAreaInsets();
@@ -122,14 +117,9 @@ export default function CustomerAuditPage() {
               <Info label="Yozuv" value={`${entry.entityType} #${entry.entityId}`} />
               {!!entry.reason && <Info label="Sabab" value={entry.reason} />}
               <Pressable onPress={() => setExpanded(isExpanded ? null : key)} accessibilityRole="button" style={styles.expand}>
-                <Text style={styles.link}>{isExpanded ? "O‘zgarishni yashirish" : "Oldingi va keyingi holatni ko‘rish"}</Text>
+                <Text style={styles.link}>{isExpanded ? "O‘zgarishni yashirish" : "Nima o‘zgarganini ko‘rish"}</Text>
               </Pressable>
-              {isExpanded && <>
-                <Text style={styles.snapshotLabel}>Oldin</Text>
-                <Text style={styles.snapshot} selectable>{snapshotText(entry.before)}</Text>
-                <Text style={styles.snapshotLabel}>Keyin</Text>
-                <Text style={styles.snapshot} selectable>{snapshotText(entry.after)}</Text>
-              </>}
+              {isExpanded && <AuditChangeList before={entry.before} after={entry.after} />}
             </View>;
           })}
           {totalPages > 1 && <View style={styles.pagination}>
@@ -169,8 +159,6 @@ const styles = StyleSheet.create({
   infoLabel: { flex: 1, color: "#627184", fontSize: 13 },
   infoValue: { flex: 2, color: "#172536", fontSize: 13, textAlign: "right", fontWeight: "600" },
   expand: { paddingTop: 12, paddingBottom: 4 },
-  snapshotLabel: { color: "#172536", fontSize: 13, fontWeight: "800", marginTop: 14, marginBottom: 5 },
-  snapshot: { color: "#34445A", fontSize: 12, lineHeight: 18, backgroundColor: "#F6F8FB", borderRadius: 8, padding: 10 },
   pagination: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
   pageButton: { paddingVertical: 12, paddingHorizontal: 8 },
   disabled: { opacity: 0.4 },

@@ -10,6 +10,11 @@ export type PaymentOptions = {
 
 export const PAYMENT_CARDS = ["1234567896543215", "8600123456789012", "9860432167891234"] as const;
 
+export function fullCardForLast4(last4: string) {
+  const matches = PAYMENT_CARDS.filter((number) => number.endsWith(last4));
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function usePaymentOptions(token: string | null) {
   const [options, setOptions] = useState<PaymentOptions | null>(null);
   const [loading, setLoading] = useState(false);

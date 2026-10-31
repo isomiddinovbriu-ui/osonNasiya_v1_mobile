@@ -1,8 +1,9 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest, type User } from "./api";
 import DateFilterField, { formatUzDate } from "./DateFilterField";
+import { formatMoneyWithUnits } from "./money";
 import { getStoredToken } from "./session";
 
 type DuePeriod = {
@@ -10,6 +11,12 @@ type DuePeriod = {
   dueCustomerCount: number;
   paidAmount: number;
   paidCustomerCount: number;
+  initialPaidAmount: number;
+  initialPaidCustomerCount: number;
+  otherMonthPaidAmount: number;
+  otherMonthPaidCustomerCount: number;
+  unassignedPaidAmount: number;
+  unassignedPaidCustomerCount: number;
 };
 type SalesStats = {
   soldAmount: number;
@@ -34,6 +41,7 @@ type CollectionStats = {
 };
 type Region = { id: string; name: string };
 type Option = { id: string; name: string; detail?: string };
+type PaymentCategory = "current_month" | "other_month" | "initial" | "unassigned";
 
 const months = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
 
@@ -51,7 +59,7 @@ function monthLabel(month: string) {
 }
 
 function money(value: number) {
-  return `${new Intl.NumberFormat("en-US").format(value).replace(/,/g, " ")} UZS`;
+  return `${new Intl.NumberFormat("en-US").format(value).replace(/,/g, " ")} so'm`;
 }
 
 function MonthPicker({ value, currentMonth, onChange }: { value: string; currentMonth: string; onChange: (month: string) => void }) {
@@ -134,29 +142,60 @@ function FilterPicker({ label, value, options, onChange }: {
   </View>;
 }
 
-function StatCard({ title, amount, detail, extra, tint }: {
+function StatCard({ title, amount, detail, tint }: {
   title: string;
   amount: number;
   detail: string;
-  extra?: string;
   tint: string;
 }) {
   return <View style={[styles.statCard, { backgroundColor: tint }]}>
     <Text style={styles.statTitle}>{title}</Text>
     <Text style={styles.statAmount} adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1}>{money(amount)}</Text>
+    <Text style={styles.amountWords}>({formatMoneyWithUnits(amount)})</Text>
     <Text style={styles.statDetail}>{detail}</Text>
-    {!!extra && <Text style={styles.statExtra}>{extra}</Text>}
   </View>;
 }
 
-function CollectionCard({ title, value, tint }: { title: string; value: CollectionPeriod; tint: string }) {
-  return <View style={[styles.collectionCard, { backgroundColor: tint }]}>
+function CollectionBreakdown({ label, amount, onPress }: { label: string; amount: number; onPress?: () => void }) {
+  const content = <>
+    <Text style={[styles.collectionBreakdownAmount, onPress && styles.collectionBreakdownLink]}>{label}: {money(amount)}</Text>
+    <Text style={styles.collectionBreakdownWords}>({formatMoneyWithUnits(amount)})</Text>
+  </>;
+  return onPress
+    ? <Pressable style={styles.collectionBreakdown} onPress={(event) => { event.stopPropagation(); onPress(); }} accessibilityRole="button" accessibilityLabel={`${label} to‘lovlarini ko‘rish`}>{content}</Pressable>
+    : <View style={styles.collectionBreakdown}>{content}</View>;
+}
+
+function CollectionPaymentRow({ label, amount, count, onPress }: { label: string; amount: number; count: number; onPress?: () => void }) {
+  const content = <>
+    <Text style={[styles.collectionBreakdownAmount, onPress && styles.collectionBreakdownLink]}>{label}: {money(amount)} · {count} kishi{onPress ? " ›" : ""}</Text>
+    <Text style={styles.collectionBreakdownWords}>({formatMoneyWithUnits(amount)})</Text>
+  </>;
+  return onPress
+    ? <Pressable style={styles.collectionBreakdown} onPress={(event) => { event.stopPropagation(); onPress(); }} accessibilityRole="button" accessibilityLabel={`${label} to‘lovlarini ko‘rish`}>{content}</Pressable>
+    : <View style={styles.collectionBreakdown}>{content}</View>;
+}
+
+function CollectionCard({ title, value, tint, paidBreakdown, onOpenPaidCategory, onOpenPayments }: { title: string; value: CollectionPeriod; tint: string; paidBreakdown?: DuePeriod; onOpenPaidCategory?: (category: PaymentCategory) => void; onOpenPayments?: (category: "all" | "initial" | "installment") => void }) {
+  const content = <>
     <Text style={styles.collectionTitle}>{title}</Text>
     <Text style={styles.collectionAmount} adjustsFontSizeToFit minimumFontScale={0.75} numberOfLines={1}>{money(value.amount)}</Text>
+    <Text style={styles.amountWords}>({formatMoneyWithUnits(value.amount)})</Text>
     <Text style={styles.statDetail}>{value.customerCount} kishi · {value.paymentCount} ta to‘lov</Text>
-    <Text style={styles.collectionBreakdown}>Boshlang‘ich: {money(value.initialAmount)}</Text>
-    <Text style={styles.collectionBreakdown}>Keyingi: {money(value.installmentAmount)}</Text>
-  </View>;
+    {paidBreakdown ? <>
+      <CollectionPaymentRow label="Shu oy uchun to‘langan" amount={paidBreakdown.paidAmount} count={paidBreakdown.paidCustomerCount} onPress={onOpenPaidCategory ? () => onOpenPaidCategory("current_month") : undefined} />
+      <CollectionPaymentRow label="Boshlang‘ich to‘lov" amount={paidBreakdown.initialPaidAmount} count={paidBreakdown.initialPaidCustomerCount} onPress={onOpenPaidCategory ? () => onOpenPaidCategory("initial") : undefined} />
+      <CollectionPaymentRow label="Boshqa oylar uchun" amount={paidBreakdown.otherMonthPaidAmount} count={paidBreakdown.otherMonthPaidCustomerCount} onPress={onOpenPaidCategory ? () => onOpenPaidCategory("other_month") : undefined} />
+      <CollectionPaymentRow label="Oyi belgilanmagan" amount={paidBreakdown.unassignedPaidAmount} count={paidBreakdown.unassignedPaidCustomerCount} onPress={onOpenPaidCategory ? () => onOpenPaidCategory("unassigned") : undefined} />
+    </> : <>
+      <CollectionBreakdown label="Boshlang‘ich" amount={value.initialAmount} onPress={onOpenPayments ? () => onOpenPayments("initial") : undefined} />
+      <CollectionBreakdown label="Keyingi" amount={value.installmentAmount} onPress={onOpenPayments ? () => onOpenPayments("installment") : undefined} />
+    </>}
+    {!!onOpenPayments && <Text style={styles.collectionOpenHint}>To‘lovlar ro‘yxatini ko‘rish ›</Text>}
+  </>;
+  return onOpenPayments
+    ? <Pressable style={[styles.collectionCard, { backgroundColor: tint }]} onPress={() => onOpenPayments("all")} accessibilityRole="button" accessibilityLabel={`${title} to‘lovlar ro‘yxatini ko‘rish`}>{content}</Pressable>
+    : <View style={[styles.collectionCard, { backgroundColor: tint }]}>{content}</View>;
 }
 
 export default function DashboardStats({ user, refreshKey }: { user: User; refreshKey: number }) {
@@ -229,6 +268,25 @@ export default function DashboardStats({ user, refreshKey }: { user: User; refre
   const currentMonth = tashkentToday().slice(0, 7);
   const staffOptions: Option[] = [user, ...users].filter((item) => item.role !== "product_creator").map((item) => ({ id: item.id, name: item.name || item.login, detail: `${item.login} · ${item.role}` }));
 
+  const monthPaid = sales?.month;
+  const monthBreakdownMatches = !!monthPaid && !!collections
+    && monthPaid.initialPaidAmount === collections.month.initialAmount
+    && monthPaid.paidAmount + monthPaid.otherMonthPaidAmount + monthPaid.unassignedPaidAmount === collections.month.installmentAmount;
+
+  function openSalesPayments(category: PaymentCategory) {
+    router.push({
+      pathname: "/dashboard-payments",
+      params: { month, category, ...(admin && createdBy ? { createdBy } : {}), ...(admin && regionId ? { regionId } : {}) },
+    });
+  }
+
+  function openTodayCollections(category: "all" | "initial" | "installment") {
+    router.push({
+      pathname: "/dashboard-collection-payments",
+      params: { date, category, ...(admin && createdBy ? { receivedBy: createdBy } : {}), ...(admin && regionId ? { regionId } : {}) },
+    });
+  }
+
   return <View style={styles.container}>
     <View style={styles.headingRow}>
       <View style={styles.headingText}>
@@ -271,11 +329,12 @@ export default function DashboardStats({ user, refreshKey }: { user: User; refre
           <Text style={styles.sectionSubtitle}>{admin ? "Sotilgan summa va qolgan to‘lovlar" : "Siz yaratgan savdolar va ularning qoldig‘i"}</Text>
         </View>
       </View>
-      <StatCard title="Jami sotilgan summa" amount={sales.soldAmount} detail={`${sales.fullyPaidCount} / ${sales.salesCount} ta savdo to‘liq to‘langan`} tint="#FDEDF2" />
+      <Pressable onPress={() => router.push("/customers")} accessibilityRole="button" accessibilityLabel="Jami sotilgan summa, mijozlar sahifasini ochish">
+        <StatCard title="Jami sotilgan summa" amount={sales.soldAmount} detail={`${sales.fullyPaidCount} / ${sales.salesCount} ta savdo to‘liq to‘langan`} tint="#FDEDF2" />
+      </Pressable>
       <StatCard title="To‘lanmagan summa" amount={sales.remainingAmount} detail={`${sales.remainingCustomerCount} / ${sales.salesCount} ta savdoda qoldiq bor`} tint="#E7F5FC" />
-      <StatCard title="Bu oydagi to‘lov" amount={sales.month.dueRemainingAmount} detail={`To‘lanishi kerak · ${sales.month.dueCustomerCount} kishi`} extra={`Bu oy to‘langan: ${money(sales.month.paidAmount)} · ${sales.month.paidCustomerCount} kishi`} tint="#F2FBE9" />
-      <StatCard title="Bugungi to‘lov" amount={sales.today.dueRemainingAmount} detail={`To‘lanishi kerak · ${sales.today.dueCustomerCount} kishi`} extra={`Bugun to‘langan: ${money(sales.today.paidAmount)} · ${sales.today.paidCustomerCount} kishi`} tint="#FFF7E4" />
-      <View style={styles.explainerCard}><Text style={styles.explainer}>To‘langan pul qabul qilingan sana bo‘yicha, to‘lanishi kerak bo‘lgan summa esa oylik reja qoldig‘i bo‘yicha hisoblanadi.</Text></View>
+      <StatCard title="Bu oy to‘lanishi kerak" amount={sales.month.dueRemainingAmount} detail={`Qolgan summa · ${sales.month.dueCustomerCount} kishi`} tint="#F2FBE9" />
+      <View style={styles.explainerCard}><Text style={styles.explainer}>Bu oylik qoldiq summa. Qabul qilingan pullar pastdagi bo‘limda ko‘rsatiladi.</Text></View>
     </View>}
 
     {collections && <View style={[styles.collectionsSection, loading && styles.stale]}>
@@ -287,8 +346,9 @@ export default function DashboardStats({ user, refreshKey }: { user: User; refre
         </View>
       </View>
       <CollectionCard title="Jami qabul qilingan" value={collections.allTime} tint="#EEF3FF" />
-      <CollectionCard title="Bu oy qabul qilingan" value={collections.month} tint="#EBF8F4" />
-      <CollectionCard title="Bugun qabul qilingan" value={collections.today} tint="#FFF2E9" />
+      <CollectionCard title="Bu oy qabul qilingan" value={collections.month} tint="#EBF8F4" paidBreakdown={monthBreakdownMatches ? monthPaid : undefined} onOpenPaidCategory={monthBreakdownMatches && admin && !createdBy ? openSalesPayments : undefined} />
+      <CollectionCard title="Bugun qabul qilingan" value={collections.today} tint="#FFF2E9" onOpenPayments={openTodayCollections} />
+      <View style={styles.explainerCard}><Text style={styles.explainer}>Bu yerda tanlangan davrda amalda qabul qilingan pul ko‘rsatiladi. Summa boshlang‘ich va keyingi to‘lovlarni o‘z ichiga oladi.</Text></View>
     </View>}
   </View>;
 }
@@ -356,15 +416,19 @@ const styles = StyleSheet.create({
   statCard: { borderRadius: 16, paddingHorizontal: 22, paddingVertical: 22, marginBottom: 14, minHeight: 146, justifyContent: "center" },
   statTitle: { color: "#4F5A69", fontSize: 18, marginBottom: 8 },
   statAmount: { color: "#18212D", fontSize: 25, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  amountWords: { color: "#526071", fontSize: 15, fontWeight: "500", marginTop: 2, lineHeight: 20 },
   statDetail: { color: "#526071", fontSize: 14, marginTop: 8 },
-  statExtra: { color: "#284E3F", fontSize: 13, fontWeight: "700", marginTop: 8, lineHeight: 19 },
   explainerCard: { backgroundColor: "#FFFFFF", borderLeftWidth: 3, borderLeftColor: "#D77A32", borderRadius: 8, paddingHorizontal: 13, paddingVertical: 10, marginTop: 2 },
   explainer: { color: "#627184", fontSize: 12, lineHeight: 18 },
   collectionsSection: { marginTop: 34, paddingTop: 24, borderTopWidth: 1, borderTopColor: "#D9E2EC" },
   collectionCard: { borderRadius: 16, padding: 18, marginBottom: 12 },
   collectionTitle: { color: "#4F5A69", fontSize: 16 },
   collectionAmount: { color: "#18212D", fontSize: 23, fontWeight: "800", marginTop: 8, fontVariant: ["tabular-nums"] },
-  collectionBreakdown: { color: "#627184", fontSize: 12, marginTop: 6 },
+  collectionBreakdown: { marginTop: 6 },
+  collectionBreakdownAmount: { color: "#627184", fontSize: 12 },
+  collectionBreakdownLink: { color: "#1677D2", textDecorationLine: "underline" },
+  collectionBreakdownWords: { color: "#627184", fontSize: 12, marginTop: 2 },
+  collectionOpenHint: { color: "#1677D2", fontSize: 13, fontWeight: "700", marginTop: 14 },
   errorCard: { backgroundColor: "#FFF1F2", borderRadius: 12, padding: 14, marginBottom: 12 },
   errorText: { color: "#C3333D", fontSize: 14, lineHeight: 20 },
   retryText: { color: "#1677D2", fontSize: 14, fontWeight: "700", marginTop: 8 },

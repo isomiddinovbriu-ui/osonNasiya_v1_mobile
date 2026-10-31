@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 const months = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
 const weekdays = ["Du", "Se", "Cho", "Pa", "Ju", "Sha", "Ya"];
@@ -14,9 +14,9 @@ function dateValue(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-export function formatUzDate(value: string) {
+export function formatUzDate(value: string, daySeparator = "-") {
   const selected = parts(value);
-  return selected ? `${selected.day}-${months[selected.month].toLocaleLowerCase("uz-UZ")} ${selected.year} yil` : "Sana tanlang";
+  return selected ? `${selected.day}${daySeparator}${months[selected.month].toLocaleLowerCase("uz-UZ")} ${selected.year} yil` : "Sana tanlang";
 }
 
 function daysBefore(value: string, days: number) {
@@ -25,7 +25,16 @@ function daysBefore(value: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-export default function DateFilterField({ label, value, onChange, todayKey, modal = false, quickPresets = false }: { label: string; value: string; onChange: (value: string) => void; todayKey?: string; modal?: boolean; quickPresets?: boolean }) {
+function monthsBefore(value: string, count: number) {
+  const selected = parts(value)!;
+  const target = new Date(Date.UTC(selected.year, selected.month - count, 1));
+  const year = target.getUTCFullYear();
+  const month = target.getUTCMonth();
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return dateValue(year, month, Math.min(selected.day, lastDay));
+}
+
+export default function DateFilterField({ label, value, onChange, todayKey, modal = false, quickPresets = false, historicalPresets = false, longFormat = false }: { label: string; value: string; onChange: (value: string) => void; todayKey?: string; modal?: boolean; quickPresets?: boolean; historicalPresets?: boolean; longFormat?: boolean }) {
   const now = new Date();
   const today = todayKey ?? dateValue(now.getFullYear(), now.getMonth(), now.getDate());
   const todayParts = parts(today)!;
@@ -36,6 +45,7 @@ export default function DateFilterField({ label, value, onChange, todayKey, moda
     return new Date(selected?.year ?? todayParts.year, selected?.month ?? todayParts.month, 1);
   });
   const selected = parts(value);
+  const displayValue = longFormat ? formatUzDate(value, " ") : quickPresets ? formatUzDate(value) : selected ? `${String(selected.day).padStart(2, "0")}.${String(selected.month + 1).padStart(2, "0")}.${selected.year}` : "Sana tanlang";
   const year = visibleMonth.getFullYear();
   const month = visibleMonth.getMonth();
   const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -47,6 +57,12 @@ export default function DateFilterField({ label, value, onChange, todayKey, moda
     { label: "1 hafta oldin", date: daysBefore(today, 7) },
     { label: "15 kun oldin", date: daysBefore(today, 15) },
   ];
+  const historicalDates = historicalPresets ? [
+    { label: "3 oy oldingi", date: monthsBefore(today, 3) },
+    { label: "6 oy oldingi", date: monthsBefore(today, 6) },
+    { label: "9 oy oldingi", date: monthsBefore(today, 9) },
+    { label: "O‘tgan yilgi", date: monthsBefore(today, 12) },
+  ] : [];
 
   function shiftMonth(delta: number) {
     const target = new Date(year, month + delta, 1);
@@ -97,8 +113,8 @@ export default function DateFilterField({ label, value, onChange, todayKey, moda
         const selectedMonth = new Date(current.year, current.month, 1);
         setVisibleMonth(selectedMonth > currentMonth ? currentMonth : selectedMonth);
       }
-    } setOpen(!open); }} accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${label}, ${value || "sana tanlanmagan"}`}>
-      <Text style={[styles.fieldText, !value && styles.placeholder]}>{quickPresets ? formatUzDate(value) : selected ? `${String(selected.day).padStart(2, "0")}.${String(selected.month + 1).padStart(2, "0")}.${selected.year}` : "Sana tanlang"}</Text>
+    } setOpen(!open); }} accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${label}, ${value ? displayValue : "sana tanlanmagan"}`}>
+      <Text style={[styles.fieldText, !value && styles.placeholder]}>{displayValue}</Text>
       <Text style={styles.icon}>▦</Text>
     </Pressable>
     {quickPresets && <View style={styles.presetRow}>
@@ -111,10 +127,21 @@ export default function DateFilterField({ label, value, onChange, todayKey, moda
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Kalendarni yopish" />
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{label}</Text>
+            <Text style={styles.modalTitle}>{label} sanasi</Text>
             <Pressable style={styles.closeButton} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Yopish"><Text style={styles.closeText}>×</Text></Pressable>
           </View>
-          {calendar}
+          <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+            {historicalPresets && <View style={styles.historicalSection}>
+              <Text style={styles.historicalTitle}>Tez tanlash</Text>
+              <View style={styles.historicalGrid}>
+                {historicalDates.map((preset) => <Pressable key={preset.label} style={[styles.historicalButton, value === preset.date && styles.historicalButtonSelected]} onPress={() => { onChange(preset.date); setOpen(false); }} accessibilityRole="button" accessibilityState={{ selected: value === preset.date }} accessibilityLabel={`${preset.label}, ${formatUzDate(preset.date, " ")}`}>
+                  <Text style={[styles.historicalLabel, value === preset.date && styles.historicalLabelSelected]}>{preset.label}</Text>
+                  <Text style={styles.historicalDate}>{formatUzDate(preset.date, " ")}</Text>
+                </Pressable>)}
+              </View>
+            </View>}
+            {calendar}
+          </ScrollView>
         </View>
       </View>
     </Modal> : open && calendar}
@@ -135,9 +162,18 @@ const styles = StyleSheet.create({
   presetTextSelected: { color: "#FFFFFF" },
   calendar: { marginTop: 8, borderWidth: 1, borderColor: "#D7DFE8", borderRadius: 13, padding: 10, backgroundColor: "#FFFFFF" },
   modalRoot: { flex: 1, backgroundColor: "rgba(23, 37, 54, 0.42)", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },
-  modalCard: { width: "100%", maxWidth: 400, backgroundColor: "#FFFFFF", borderRadius: 20, padding: 16, shadowColor: "#172536", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.16, shadowRadius: 24, elevation: 12 },
+  modalCard: { width: "100%", maxWidth: 400, maxHeight: "88%", backgroundColor: "#FFFFFF", borderRadius: 20, padding: 16, shadowColor: "#172536", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.16, shadowRadius: 24, elevation: 12 },
+  modalScroll: { flexGrow: 0, flexShrink: 1 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   modalTitle: { color: "#172536", fontSize: 17, fontWeight: "800" },
+  historicalSection: { marginBottom: 16 },
+  historicalTitle: { color: "#53647A", fontSize: 12, fontWeight: "700", marginBottom: 8 },
+  historicalGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  historicalButton: { width: "48%", flexGrow: 1, minHeight: 58, borderWidth: 1, borderColor: "#D7E4F2", backgroundColor: "#F3F8FF", borderRadius: 11, paddingHorizontal: 10, paddingVertical: 8, justifyContent: "center" },
+  historicalButtonSelected: { borderColor: "#1677D2", backgroundColor: "#EAF4FF" },
+  historicalLabel: { color: "#1677D2", fontSize: 13, fontWeight: "700" },
+  historicalLabelSelected: { color: "#145EAA" },
+  historicalDate: { color: "#627184", fontSize: 11, marginTop: 2 },
   closeButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   closeText: { color: "#627184", fontSize: 26, lineHeight: 30 },
   modalCalendar: { marginTop: 0, borderWidth: 0, padding: 0 },
