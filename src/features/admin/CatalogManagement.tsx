@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { API_URL, ApiError, apiRequest } from "./api";
+import { formatDate } from "./customers";
 import type { DeleteConfirmation } from "./FullScreenLoading";
 import LoadingMark from "./LoadingMark";
 import { formatMoneyDigits, formatMoneyWithUnits, parseMoney } from "./money";
@@ -38,6 +39,8 @@ type Product = {
   originalPrice: number | null;
   minSellingPrice: number | null;
   warrantyPeriod: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   images: { id: string; url: string }[];
 };
 type Props = {
@@ -75,17 +78,22 @@ function parsePrice(value: string) {
 }
 
 function parseWarrantyPeriod(value: string) {
-  const match = /^(10|[1-9])(?:\.(\d{1,2}))?$/.exec(value);
+  const match = /^(10|[0-9])(?:\.(\d{1,2}))?$/.exec(value);
   if (!match) return null;
+  const years = Number(match[1]);
   const months = Number(match[2] ?? 0);
-  return months <= 11 ? { years: Number(match[1]), months } : null;
+  return months <= 11 && (years > 0 || months > 0)
+    ? { years, months }
+    : null;
 }
 
 function formatWarrantyPeriod(value: string | null) {
   if (!value) return "Kiritilmagan";
   const period = parseWarrantyPeriod(value);
   return period
-    ? `${period.years} yil${period.months ? ` ${period.months} oy` : ""}`
+    ? [period.years && `${period.years} yil`, period.months && `${period.months} oy`]
+        .filter(Boolean)
+        .join(" ")
     : value;
 }
 
@@ -577,7 +585,7 @@ export default function CatalogManagement({
       return;
     }
     if (!parseWarrantyPeriod(warranty)) {
-      setError("Kafolat uchun 1–10 yil va kerak bo'lsa 1–11 oy tanlang.");
+      setError("Kafolat uchun 1–11 oy yoki 1–10 yil tanlang.");
       return;
     }
     if (minimum < original && !lowPriceConfirmed) {
@@ -1601,6 +1609,23 @@ export default function CatalogManagement({
                         <Text style={styles.productDetailValue}>
                           {formatWarrantyPeriod(productDetail.warrantyPeriod)}
                         </Text>
+                        <View style={styles.productDetailDivider} />
+                        <Text style={styles.productDetailLabel}>
+                          Yaratilgan vaqt
+                        </Text>
+                        <Text style={styles.productDetailValue}>
+                          {productDetail.createdAt
+                            ? formatDate(productDetail.createdAt)
+                            : "Kiritilmagan"}
+                        </Text>
+                        <Text style={styles.productDetailLabel}>
+                          Oxirgi yangilangan vaqt
+                        </Text>
+                        <Text style={styles.productDetailValue}>
+                          {productDetail.updatedAt
+                            ? formatDate(productDetail.updatedAt)
+                            : "Kiritilmagan"}
+                        </Text>
                       </View>
                       <View style={styles.productDetailCard}>
                         <Text style={styles.productDetailSectionTitle}>
@@ -1860,9 +1885,18 @@ function WarrantyPeriodPicker({
   disabled: boolean;
 }) {
   const selected = parseWarrantyPeriod(value);
+  function updateSelection(years: number, months: number) {
+    onChange(
+      years
+        ? `${years}${months ? `.${months}` : ""}`
+        : months
+          ? `0.${months}`
+          : "",
+    );
+  }
   return (
     <View>
-      <Text style={styles.warrantyHint}>Yilni tanlang</Text>
+      <Text style={styles.warrantyHint}>Yilni tanlang (ixtiyoriy)</Text>
       <View style={styles.warrantyOptions}>
         {Array.from({ length: 10 }, (_, index) => index + 1).map((year) => (
           <Pressable
@@ -1872,7 +1906,12 @@ function WarrantyPeriodPicker({
               selected?.years === year && styles.warrantyOptionSelected,
               disabled && styles.disabled,
             ]}
-            onPress={() => onChange(String(year))}
+            onPress={() =>
+              updateSelection(
+                selected?.years === year ? 0 : year,
+                selected?.months ?? 0,
+              )
+            }
             disabled={disabled}
             accessibilityRole="button"
             accessibilityLabel={`${year} yil`}
@@ -1889,40 +1928,41 @@ function WarrantyPeriodPicker({
           </Pressable>
         ))}
       </View>
-      {selected && (
-        <>
-          <Text style={styles.warrantyHint}>Oylarni tanlang</Text>
-          <View style={styles.warrantyOptions}>
-            {Array.from({ length: 11 }, (_, index) => index + 1).map(
-              (month) => (
-                <Pressable
-                  key={month}
-                  style={[
-                    styles.warrantyOption,
-                    selected.months === month && styles.warrantyOptionSelected,
-                    disabled && styles.disabled,
-                  ]}
-                  onPress={() => onChange(`${selected.years}.${month}`)}
-                  disabled={disabled}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${month} oy`}
-                  accessibilityState={{ selected: selected.months === month }}
-                >
-                  <Text
-                    style={[
-                      styles.warrantyOptionText,
-                      selected.months === month &&
-                        styles.warrantyOptionTextSelected,
-                    ]}
-                  >
-                    {month} oy
-                  </Text>
-                </Pressable>
-              ),
-            )}
-          </View>
-        </>
-      )}
+      <Text style={styles.warrantyHint}>Oylarni tanlang</Text>
+      <View style={styles.warrantyOptions}>
+        {Array.from({ length: 11 }, (_, index) => index + 1).map(
+          (month) => (
+            <Pressable
+              key={month}
+              style={[
+                styles.warrantyOption,
+                selected?.months === month && styles.warrantyOptionSelected,
+                disabled && styles.disabled,
+              ]}
+              onPress={() =>
+                updateSelection(
+                  selected?.years ?? 0,
+                  selected?.months === month ? 0 : month,
+                )
+              }
+              disabled={disabled}
+              accessibilityRole="button"
+              accessibilityLabel={`${month} oy`}
+              accessibilityState={{ selected: selected?.months === month }}
+            >
+              <Text
+                style={[
+                  styles.warrantyOptionText,
+                  selected?.months === month &&
+                    styles.warrantyOptionTextSelected,
+                ]}
+              >
+                {month} oy
+              </Text>
+            </Pressable>
+          ),
+        )}
+      </View>
       {selected && (
         <Text style={styles.warrantySummary}>
           Kafolat muddati: {formatWarrantyPeriod(value)}

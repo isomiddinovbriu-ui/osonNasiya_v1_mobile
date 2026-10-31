@@ -974,7 +974,7 @@ export default function CustomerListPage() {
           <View style={styles.customerTop}>
             <Text style={styles.customerName}>{item.name}</Text>
             <View style={styles.customerTopActions}>
-              <Text style={[styles.badge, { color: tone.value, backgroundColor: tone.track }]}>
+              <Text style={[styles.badge, { color: tone.textColor, backgroundColor: tone.track }]}>
                 {item.remainingBalance > 0 ? "Qarzi bor" : "To'langan"}
               </Text>
               <View style={styles.viewIcon}>
@@ -988,7 +988,7 @@ export default function CustomerListPage() {
           </Text>
           {!!item.address && <Text style={styles.customerMeta}>{item.address}</Text>}
           </>}
-          <Text style={[styles.customerAmount, { color: tone.value }]}>
+          <Text style={[styles.customerAmount, { color: tone.textColor }]}>
             Qolgan qarz: {formatMoney(item.remainingBalance)}
           </Text>
           <Text style={styles.amountWords}>{formatMoneyWithUnits(item.remainingBalance, true)}</Text>
@@ -1001,7 +1001,7 @@ export default function CustomerListPage() {
             >
               <View style={[styles.customerProgressFill, { width: `${percent}%`, backgroundColor: tone.fill }]} />
             </View>
-            <Text style={[styles.customerProgressText, { color: tone.value }]}>{percent}%</Text>
+            <Text style={[styles.customerProgressText, { color: tone.textColor }]}>{percent}%</Text>
           </View>
           <Text style={styles.customerMeta}>{formatDate(item.createdAt)}</Text>
         </Pressable>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 const months = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
 const weekdays = ["Du", "Se", "Cho", "Pa", "Ju", "Sha", "Ya"];
@@ -14,7 +14,18 @@ function dateValue(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-export default function DateFilterField({ label, value, onChange, todayKey }: { label: string; value: string; onChange: (value: string) => void; todayKey?: string }) {
+export function formatUzDate(value: string) {
+  const selected = parts(value);
+  return selected ? `${selected.day}-${months[selected.month].toLocaleLowerCase("uz-UZ")} ${selected.year} yil` : "Sana tanlang";
+}
+
+function daysBefore(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+export default function DateFilterField({ label, value, onChange, todayKey, modal = false, quickPresets = false }: { label: string; value: string; onChange: (value: string) => void; todayKey?: string; modal?: boolean; quickPresets?: boolean }) {
   const now = new Date();
   const today = todayKey ?? dateValue(now.getFullYear(), now.getMonth(), now.getDate());
   const todayParts = parts(today)!;
@@ -31,6 +42,11 @@ export default function DateFilterField({ label, value, onChange, todayKey }: { 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const nextMonthDisabled = new Date(year, month + 1, 1) > currentMonth;
   const nextYearDisabled = new Date(year + 1, month, 1) > currentMonth;
+  const presets = [
+    { label: "Kecha", date: daysBefore(today, 1) },
+    { label: "1 hafta oldin", date: daysBefore(today, 7) },
+    { label: "15 kun oldin", date: daysBefore(today, 15) },
+  ];
 
   function shiftMonth(delta: number) {
     const target = new Date(year, month + delta, 1);
@@ -43,19 +59,7 @@ export default function DateFilterField({ label, value, onChange, todayKey }: { 
     setOpen(false);
   }
 
-  return <View>
-    <Text style={styles.label}>{label}</Text>
-    <Pressable style={[styles.field, open && styles.fieldOpen]} onPress={() => { if (!open) {
-      const current = parts(value);
-      if (current) {
-        const selectedMonth = new Date(current.year, current.month, 1);
-        setVisibleMonth(selectedMonth > currentMonth ? currentMonth : selectedMonth);
-      }
-    } setOpen(!open); }} accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${label}, ${value || "sana tanlanmagan"}`}>
-      <Text style={[styles.fieldText, !value && styles.placeholder]}>{selected ? `${String(selected.day).padStart(2, "0")}.${String(selected.month + 1).padStart(2, "0")}.${selected.year}` : "Sana tanlang"}</Text>
-      <Text style={styles.icon}>▦</Text>
-    </Pressable>
-    {open && <View style={styles.calendar}>
+  const calendar = <View style={[styles.calendar, modal && styles.modalCalendar]}>
       <View style={styles.monthHeader}>
         <Text style={styles.monthTitle}>{months[month]} {year}</Text>
         <View style={styles.navigation}>
@@ -83,7 +87,37 @@ export default function DateFilterField({ label, value, onChange, todayKey }: { 
         <Pressable onPress={() => { onChange(""); setOpen(false); }} accessibilityRole="button"><Text style={styles.action}>Tozalash</Text></Pressable>
         <Pressable onPress={chooseToday} accessibilityRole="button"><Text style={styles.action}>Bugun</Text></Pressable>
       </View>
+    </View>;
+
+  return <View>
+    <Text style={styles.label}>{label}</Text>
+    <Pressable style={[styles.field, open && styles.fieldOpen]} onPress={() => { if (!open) {
+      const current = parts(value);
+      if (current) {
+        const selectedMonth = new Date(current.year, current.month, 1);
+        setVisibleMonth(selectedMonth > currentMonth ? currentMonth : selectedMonth);
+      }
+    } setOpen(!open); }} accessibilityRole="button" accessibilityState={{ expanded: open }} accessibilityLabel={`${label}, ${value || "sana tanlanmagan"}`}>
+      <Text style={[styles.fieldText, !value && styles.placeholder]}>{quickPresets ? formatUzDate(value) : selected ? `${String(selected.day).padStart(2, "0")}.${String(selected.month + 1).padStart(2, "0")}.${selected.year}` : "Sana tanlang"}</Text>
+      <Text style={styles.icon}>▦</Text>
+    </Pressable>
+    {quickPresets && <View style={styles.presetRow}>
+      {presets.map((preset) => <Pressable key={preset.label} style={[styles.presetButton, value === preset.date && styles.presetSelected]} onPress={() => { onChange(preset.date); setOpen(false); }} accessibilityRole="button" accessibilityState={{ selected: value === preset.date }} accessibilityLabel={`${preset.label}, ${formatUzDate(preset.date)}`}>
+        <Text style={[styles.presetText, value === preset.date && styles.presetTextSelected]}>{preset.label}</Text>
+      </Pressable>)}
     </View>}
+    {modal ? <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <View style={styles.modalRoot} accessibilityViewIsModal>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Kalendarni yopish" />
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            <Pressable style={styles.closeButton} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Yopish"><Text style={styles.closeText}>×</Text></Pressable>
+          </View>
+          {calendar}
+        </View>
+      </View>
+    </Modal> : open && calendar}
   </View>;
 }
 
@@ -94,7 +128,19 @@ const styles = StyleSheet.create({
   fieldText: { color: "#172536", fontSize: 15 },
   placeholder: { color: "#8794A5" },
   icon: { color: "#1677D2", fontSize: 25 },
+  presetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  presetButton: { minHeight: 36, borderWidth: 1, borderColor: "#D7E4F2", backgroundColor: "#F3F8FF", borderRadius: 18, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  presetSelected: { borderColor: "#1677D2", backgroundColor: "#1677D2" },
+  presetText: { color: "#1677D2", fontSize: 12, fontWeight: "700" },
+  presetTextSelected: { color: "#FFFFFF" },
   calendar: { marginTop: 8, borderWidth: 1, borderColor: "#D7DFE8", borderRadius: 13, padding: 10, backgroundColor: "#FFFFFF" },
+  modalRoot: { flex: 1, backgroundColor: "rgba(23, 37, 54, 0.42)", alignItems: "center", justifyContent: "center", paddingHorizontal: 18 },
+  modalCard: { width: "100%", maxWidth: 400, backgroundColor: "#FFFFFF", borderRadius: 20, padding: 16, shadowColor: "#172536", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.16, shadowRadius: 24, elevation: 12 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  modalTitle: { color: "#172536", fontSize: 17, fontWeight: "800" },
+  closeButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  closeText: { color: "#627184", fontSize: 26, lineHeight: 30 },
+  modalCalendar: { marginTop: 0, borderWidth: 0, padding: 0 },
   monthHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   monthTitle: { color: "#172536", fontSize: 15, fontWeight: "800" },
   navigation: { flexDirection: "row", alignItems: "center" },

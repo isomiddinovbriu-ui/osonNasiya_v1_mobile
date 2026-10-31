@@ -98,6 +98,13 @@ function parseCoordinate(value: string, min: number, max: number) {
     : null;
 }
 
+function randomTashkentCoordinates() {
+  return {
+    lat: (41.2995 + (Math.random() - 0.5) * 0.06).toFixed(6),
+    long: (69.2401 + (Math.random() - 0.5) * 0.08).toFixed(6),
+  };
+}
+
 function phoneDigits(value: string) {
   const digits = value.replace(/\D/g, "");
   return (
@@ -143,6 +150,7 @@ export default function CustomerCreatePage() {
   const [productSearchError, setProductSearchError] = useState("");
   const [regions, setRegions] = useState<Region[]>([]);
   const [regionSearch, setRegionSearch] = useState("");
+  const [regionListOpen, setRegionListOpen] = useState(true);
   const [regionResults, setRegionResults] = useState<Region[] | null>(null);
   const [regionSearching, setRegionSearching] = useState(false);
   const [regionSearchError, setRegionSearchError] = useState("");
@@ -156,8 +164,9 @@ export default function CustomerCreatePage() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [addPhoneNumber, setAddPhoneNumber] = useState("");
   const [address, setAddress] = useState("");
-  const [lat, setLat] = useState("");
-  const [long, setLong] = useState("");
+  const [initialCoordinates] = useState(randomTashkentCoordinates);
+  const [lat, setLat] = useState(initialCoordinates.lat);
+  const [long, setLong] = useState(initialCoordinates.long);
   const [locationError, setLocationError] = useState("");
   const [mapOpen, setMapOpen] = useState(false);
   const [totalPrice, setTotalPrice] = useState("");
@@ -176,6 +185,7 @@ export default function CustomerCreatePage() {
   const [regionBusy, setRegionBusy] = useState(false);
   const [regionError, setRegionError] = useState("");
   const [regionCreatedNotice, setRegionCreatedNotice] = useState(0);
+  const [confirmCreateOpen, setConfirmCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [focusRequest, setFocusRequest] = useState<{
@@ -293,6 +303,10 @@ export default function CustomerCreatePage() {
   const displayedProducts =
     selectedProduct && !productListOpen ? [selectedProduct] : visibleProducts;
   const visibleRegions = regionSearch.trim() ? (regionResults ?? []) : regions;
+  const displayedRegions =
+    selectedRegion && !regionListOpen
+      ? [selectedRegion]
+      : visibleRegions.slice(0, 5);
   const initialPayment = downPayment.trim() === "" ? 0 : parseMoney(downPayment);
   const priceAmount = parseMoney(totalPrice);
   const minimumSellingPrice = selectedProduct?.minSellingPrice ?? null;
@@ -342,8 +356,9 @@ export default function CustomerCreatePage() {
           setSectionId(draft.sectionId ?? null);
           setSelectedRegion(draft.region ?? null);
           setRegionId(draft.region?.id ?? null);
-          setLat(draft.lat ?? "");
-          setLong(draft.long ?? "");
+          setRegionListOpen(!draft.region);
+          setLat(draft.lat || initialCoordinates.lat);
+          setLong(draft.long || initialCoordinates.long);
           setTotalPrice(draft.totalPrice ?? "");
           setDownPayment(draft.downPayment ?? "0");
           setPaymentMethod(
@@ -368,7 +383,7 @@ export default function CustomerCreatePage() {
     return () => {
       active = false;
     };
-  }, [draftKey]);
+  }, [draftKey, initialCoordinates]);
 
   useEffect(() => {
     if (!draftReady || !draftKey || created) return;
@@ -505,6 +520,9 @@ export default function CustomerCreatePage() {
       setSelectedRegion(result.region);
       setRegionSearch("");
       setRegionResults(null);
+      setRegionSearching(false);
+      setRegionSearchError("");
+      setRegionListOpen(false);
       setNewRegionName("");
       setRegionFormOpen(false);
       setRegionCreatedNotice((value) => value + 1);
@@ -538,6 +556,18 @@ export default function CustomerCreatePage() {
     );
     return () => subscription.remove();
   }, [regionFormOpen, closeRegionForm]);
+
+  useEffect(() => {
+    if (!confirmCreateOpen) return;
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        if (!saving) setConfirmCreateOpen(false);
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [confirmCreateOpen, saving]);
 
   function showFieldError(
     message: string,
@@ -681,7 +711,7 @@ export default function CustomerCreatePage() {
     setFormError("");
   }
 
-  async function createCustomer() {
+  async function createCustomer(confirmed = false) {
     if (!token || saving) return;
     setFormError("");
     setPaymentFieldError("");
@@ -760,6 +790,11 @@ export default function CustomerCreatePage() {
     }
 
     Keyboard.dismiss();
+    if (!confirmed) {
+      setConfirmCreateOpen(true);
+      return;
+    }
+    setConfirmCreateOpen(false);
     setSaving(true);
     try {
       const result = await apiRequest<{ customer: CreatedCustomer }>(
@@ -805,6 +840,7 @@ export default function CustomerCreatePage() {
 
   function resetForm() {
     setCreated(null);
+    setConfirmCreateOpen(false);
     setStep(0);
     setFurthestStep(0);
     setGroupId(null);
@@ -814,13 +850,18 @@ export default function CustomerCreatePage() {
     setProductListOpen(true);
     setRegionId(null);
     setSelectedRegion(null);
+    setRegionListOpen(true);
     setProductSearch("");
     setRegionSearch("");
+    setRegionResults(null);
+    setRegionSearching(false);
+    setRegionSearchError("");
     setName("");
     setPhoneNumber("");
     setAddPhoneNumber("");
-    setLat("");
-    setLong("");
+    const coordinates = randomTashkentCoordinates();
+    setLat(coordinates.lat);
+    setLong(coordinates.long);
     setTotalPrice("");
     setDownPayment("0");
     setPaymentMethod(null);
@@ -1134,6 +1175,7 @@ export default function CustomerCreatePage() {
                           inputRef={regionRef}
                           value={regionSearch}
                           onChangeText={(value) => {
+                            setRegionListOpen(true);
                             setRegionSearch(value);
                             setRegionResults(null);
                             setRegionSearchError("");
@@ -1141,10 +1183,10 @@ export default function CustomerCreatePage() {
                           placeholder="Masalan: Toshkent"
                           maxLength={100}
                         />
-                        {regionSearching && (
+                        {regionListOpen && regionSearching && (
                           <Text style={styles.hint}>Qidirilmoqda...</Text>
                         )}
-                        {!!regionSearchError && (
+                        {regionListOpen && !!regionSearchError && (
                           <Text style={styles.error} accessibilityRole="alert">
                             {regionSearchError}
                           </Text>
@@ -1156,25 +1198,41 @@ export default function CustomerCreatePage() {
                           </Text>
                         )}
                         <View style={styles.options}>
-                          {visibleRegions.slice(0, 5).map((item) => (
+                          {displayedRegions.map((item) => (
                             <Option
                               key={item.id}
                               title={item.name}
                               selected={regionId === item.id}
                               onPress={() => {
+                                Keyboard.dismiss();
                                 setRegionId(item.id);
                                 setSelectedRegion(item);
+                                setRegionSearch("");
+                                setRegionResults(null);
+                                setRegionSearching(false);
+                                setRegionSearchError("");
+                                setRegionListOpen(false);
+                                setFormError("");
                               }}
                             />
                           ))}
                         </View>
-                        {visibleRegions.length > 5 && (
+                        {regionListOpen && visibleRegions.length > 5 && (
                           <Text style={styles.hint}>
                             Ko'proq natija uchun qidiruvni aniqlashtiring.
                           </Text>
                         )}
-                        {visibleRegions.length === 0 && !regionSearching && (
+                        {regionListOpen &&
+                          visibleRegions.length === 0 &&
+                          !regionSearching && (
                           <Text style={styles.hint}>Hudud topilmadi.</Text>
+                          )}
+                        {selectedRegion && !regionListOpen && (
+                          <Action
+                            title="Boshqa hududni tanlash"
+                            onPress={() => setRegionListOpen(true)}
+                            secondary
+                          />
                         )}
                         <Text style={styles.label}>Mijoz manzili *</Text>
                         <Text style={styles.hint}>
@@ -1196,7 +1254,7 @@ export default function CustomerCreatePage() {
                           inputRef={latRef}
                           value={lat}
                           onChangeText={setLat}
-                          placeholder="41.2995"
+                          placeholder=""
                           autoCapitalize="none"
                         />
                         <Field
@@ -1204,7 +1262,7 @@ export default function CustomerCreatePage() {
                           inputRef={longRef}
                           value={long}
                           onChangeText={setLong}
-                          placeholder="69.2401"
+                          placeholder=""
                           autoCapitalize="none"
                         />
                       </View>
@@ -1436,6 +1494,45 @@ export default function CustomerCreatePage() {
             />
           </View>
         </KeyboardAvoidingView>
+      )}
+      {confirmCreateOpen && (
+        <View style={styles.regionModalOverlay} accessibilityViewIsModal>
+          <BlurView
+            blurTarget={regionBlurTargetRef}
+            blurMethod="dimezisBlurView"
+            intensity={75}
+            tint="light"
+            style={StyleSheet.absoluteFill}
+          />
+          <Pressable
+            style={styles.regionModalBackdrop}
+            onPress={() => setConfirmCreateOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Mijoz yaratishni bekor qilish"
+          />
+          <View style={styles.regionModalCard}>
+            <Text style={styles.regionModalTitle}>
+              Mijozni yaratishga aminmisiz?
+            </Text>
+            <Text style={styles.regionModalHint}>
+              {name.trim()} uchun mijoz ma&apos;lumotlari saqlanadi.
+            </Text>
+            <Action
+              title="Ha, yaratish"
+              onPress={() => {
+                setConfirmCreateOpen(false);
+                void createCustomer(true);
+              }}
+              disabled={saving}
+            />
+            <Action
+              title="Bekor qilish"
+              onPress={() => setConfirmCreateOpen(false)}
+              disabled={saving}
+              secondary
+            />
+          </View>
+        </View>
       )}
       {regionCreatedNotice > 0 && (
         <View style={styles.regionCreatedNotice} pointerEvents="none">

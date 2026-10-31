@@ -1056,7 +1056,13 @@ export default function CustomerDetailPage({
                       {customer.payments.map((payment, index) => (
                         <View key={payment.paymentId || payment.id}>
                           {index > 0 && <View style={styles.paymentDivider} />}
-                          <View
+                          <Pressable
+                            onPress={() => router.push({
+                              pathname: "/customers/payment-detail",
+                              params: { mijoz_id: String(customer.mijoz_id), paymentId: payment.paymentId || payment.id },
+                            })}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${formatMoney(payment.amount)} to‘lov tafsilotlarini ko‘rish`}
                             style={[
                               styles.card,
                               styles.paymentCard,
@@ -1181,7 +1187,7 @@ export default function CustomerDetailPage({
                           ) : (
                             <View style={styles.paymentActions}>
                               {(isSuperAdmin || payment.receivedBy === currentUserId) && (
-                                <Pressable style={styles.editPaymentButton} onPress={() => setEditPayment(payment)} accessibilityRole="button">
+                                <Pressable style={styles.editPaymentButton} onPress={(event) => { event.stopPropagation(); setEditPayment(payment); }} accessibilityRole="button">
                                   <Text style={styles.editPaymentText}>To‘lovni tahrirlash</Text>
                                 </Pressable>
                               )}
@@ -1189,7 +1195,8 @@ export default function CustomerDetailPage({
                                 <Pressable
                                   style={styles.voidButton}
                                   disabled={voidRequests[payment.paymentId || payment.id] === "pending"}
-                                  onPress={() => {
+                                  onPress={(event) => {
+                                    event.stopPropagation();
                                     setVoidPayment(payment);
                                     setVoidReason("");
                                     setVoidError("");
@@ -1203,7 +1210,7 @@ export default function CustomerDetailPage({
                               )}
                             </View>
                           )}
-                          </View>
+                          </Pressable>
                         </View>
                       ))}
                     </View>
@@ -1611,7 +1618,7 @@ function BalancePanel({ customer }: { customer: Customer }) {
   return (
     <View style={[styles.balancePanel, { backgroundColor: tone.background }]}>
       <Text style={styles.balanceLabel}>Qolgan qarz</Text>
-      <Text style={[styles.balanceValue, { color: tone.value }]}>
+      <Text style={[styles.balanceValue, { color: tone.textColor }]}>
         {formatMoney(customer.remainingBalance)}
       </Text>
       <Text style={styles.balanceWords}>

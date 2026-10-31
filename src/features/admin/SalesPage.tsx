@@ -538,7 +538,7 @@ export default function SalesPage() {
           >
             <View style={[styles.customerProgressFill, { width: `${percent}%`, backgroundColor: tone.fill }]} />
           </View>
-          <Text style={[styles.customerProgressText, { color: tone.value }]}>{percent}%</Text>
+          <Text style={[styles.customerProgressText, { color: tone.textColor }]}>{percent}%</Text>
         </View>;
         return isPeriodDebt ? (
         <Pressable style={[styles.customer, { backgroundColor: tone.background, borderColor: tone.track }]} onPress={() => router.push({ pathname: "/customers/detail", params: { mijoz_id: String(item.mijoz_id) } })} accessibilityRole="button" accessibilityLabel={`${item.name} ma'lumotlarini ko'rish`}>
@@ -548,7 +548,7 @@ export default function SalesPage() {
           </View>
           {!!item.productName && <Text style={styles.customerMeta}>Mahsulot: {item.productName}</Text>}
           {!!item.createdAt && <Text style={styles.customerMeta}>Olingan sana: {formatDate(item.createdAt)}</Text>}
-          <Text style={[styles.customerAmount, { color: tone.value }]}>{"months" in item ? "Shu yil qarzi" : "Shu oy qarzi"}: {formatMoney(item.debtAmount)}</Text>
+          <Text style={[styles.customerAmount, { color: tone.textColor }]}>{"months" in item ? "Shu yil qarzi" : "Shu oy qarzi"}: {formatMoney(item.debtAmount)}</Text>
           <Text style={styles.amountWords}>{formatMoneyWithUnits(item.debtAmount, true)}</Text>
           <Text style={[styles.customerMeta, item.paidAmount > 0 ? styles.paymentPaid : styles.paymentUnpaid]}>
             {item.paidAmount > 0 ? ("months" in item ? "Shu yil to'langan" : "Shu oy to'langan") : "To'lov qilinmagan"}: {formatMoney(item.paidAmount)}
@@ -560,7 +560,7 @@ export default function SalesPage() {
           <View style={styles.customerTop}>
             <Text style={styles.customerName}>{item.name}</Text>
             <View style={styles.customerTopActions}>
-              <Text style={[styles.badge, { color: tone.value, backgroundColor: tone.track }]}>
+              <Text style={[styles.badge, { color: tone.textColor, backgroundColor: tone.track }]}>
                 {item.remainingBalance > 0 ? "Qarzi bor" : "To'langan"}
               </Text>
               <SymbolView name={{ ios: "eye", android: "visibility", web: "visibility" }} size={20} tintColor="#1677D2" />
@@ -568,7 +568,7 @@ export default function SalesPage() {
           </View>
           <Text style={styles.customerMeta}>Mijoz raqami: {item.mijoz_id}</Text>
           <Text style={styles.customerMeta}>{item.phoneNumber} · {item.productName}</Text>
-          <Text style={[styles.customerAmount, { color: tone.value }]}>Qolgan qarz: {formatMoney(item.remainingBalance)}</Text>
+          <Text style={[styles.customerAmount, { color: tone.textColor }]}>Qolgan qarz: {formatMoney(item.remainingBalance)}</Text>
           <Text style={styles.amountWords}>{formatMoneyWithUnits(item.remainingBalance, true)}</Text>
           {progress}
           <Text style={styles.customerMeta}>{formatDate(item.createdAt)}</Text>
